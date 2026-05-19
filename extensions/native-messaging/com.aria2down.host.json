@@ -1,0 +1,9 @@
+{
+  "name": "com.aria2down.host",
+  "description": "Forward download URLs to local aria2 via aria2down rpc.secret",
+  "path": "host.sh",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://REPLACE_WITH_EXTENSION_ID/"
+  ]
+}

@@ -109,19 +109,26 @@ lib/aria2/
 ├── client/
 │   ├── aria2_client.dart           # 高层 API（addUri, tellActive 等）
 │   ├── rpc_methods.dart            # 方法名常量
-│   ├── transport.dart              # 抽象传输接口
+│   ├── rpc_transport.dart          # 抽象传输接口（HTTP / 库内 共用）
 │   ├── http_transport.dart         # 基于 dio 的 HTTP 实现
-│   ├── ws_transport.dart           # 基于 web_socket_channel 的 WS 实现
-│   └── ws_listener.dart            # 解析 WS 推送通知
+│   ├── in_process_transport.dart   # 库模式实现：调用 packages/aria2_native
+│   └── ws_listener.dart            # 通知源接口 + WS 实现
 ├── daemon/
 │   ├── aria2_daemon.dart           # 抽象接口
-│   ├── local_daemon.dart           # 本地子进程实现
-│   ├── remote_daemon.dart          # 远程连接实现（v0.3+）
+│   ├── library_daemon.dart         # 内嵌 libaria2（默认；ADR-007）
+│   ├── local_daemon.dart           # aria2c 子进程兜底
+│   ├── remote_daemon.dart          # 远程连接实现（含 Web）
 │   └── daemon_state.dart           # 状态枚举
 ├── binary/
-│   └── binary_resolver.dart        # 解析 aria2c 路径（assets / 系统）
+│   └── binary_resolver.dart        # 解析 aria2c 路径（兜底引擎用）
 └── config/
-    └── aria2_config_builder.dart   # 生成 aria2.conf
+    └── aria2_config_builder.dart   # 生成 aria2.conf（兜底引擎用）
+
+packages/
+└── aria2_native/                   # 独立 FFI 插件：C 薄封装 + Dart 绑定
+    ├── src/aria2_ffi.{h,cc}        # extern "C" shim
+    ├── lib/                        # Dart bindings + Aria2NativeSession
+    └── prebuilt/<platform>/<arch>/ # libaria2.a + 依赖（构建脚本生成）
 ```
 
 ### 3.2 Transport 抽象
@@ -401,7 +408,7 @@ class BtDownloadComplete extends Aria2Notification { final String gid; }
 | Windows | `aria2c.exe`；UAC 弹窗（自启时） |
 | Linux | 多种发行版打包格式：deb / rpm / AppImage |
 | Android | aria2c 放入 `assets/`，启动时拷贝到 `getApplicationSupportDirectory()` 并 `chmod 755`；用 ForegroundService 守护 |
-| iOS | **不允许** 启动外部进程；候选方案：(a) aria2 编译为静态库 + 直接 `main()` 调用；(b) 仅支持远程模式；MVP 阶段倾向 (b)，长期评估 (a) |
+| iOS | 不允许 fork/exec，因此默认引擎为 **内嵌 libaria2（ADR-007）**；同步支持远程 RPC。子进程兜底在 iOS 上自动不可用。|
 
 平台抽象通过 `lib/core/platform/` 暴露统一接口。
 
@@ -445,13 +452,27 @@ CI 跑 `flutter analyze` + `flutter test`；集成测试在本地或自托管 ru
 
 ## 13. 决策记录（ADR 摘要）
 
-| ID | 决策 | 替代方案 | 选择理由 |
-| --- | --- | --- | --- |
-| ADR-001 | 用 JSON-RPC（子进程）而非 FFI 集成 aria2 | FFI 直接调用 C++ | 隔离崩溃、跨平台一致、aria2 官方稳定 RPC API |
-| ADR-002 | 默认使用 WebSocket 传输 | 仅 HTTP 轮询 | 实时通知，CPU 占用低 |
-| ADR-003 | 项目协议 GPLv2+ | MIT/Apache | 与 aria2 兼容（必选） |
-| ADR-004 | iOS MVP 仅远程模式 | 编译静态库 | 沙盒限制 + 工作量；后续再做静态库方案 |
-| ADR-005 | UI 层使用 Riverpod | Provider / Bloc | 类型安全、可组合、社区活跃 |
-| ADR-006 | aria2 作为 git submodule（不 fork） | 复制源码 / vendoring | 易于跟随 upstream 更新，体积可控 |
+| ID | 决策 | 替代方案 | 选择理由 | 状态 |
+| --- | --- | --- | --- | --- |
+| ADR-001 | 用 JSON-RPC（子进程）而非 FFI 集成 aria2 | FFI 直接调用 C++ | 隔离崩溃、跨平台一致、aria2 官方稳定 RPC API | **Superseded by ADR-007** |
+| ADR-002 | 默认使用 WebSocket 传输 | 仅 HTTP 轮询 | 实时通知，CPU 占用低 | 生效 |
+| ADR-003 | 项目协议 GPLv2+ | MIT/Apache | 与 aria2 兼容（必选） | 生效 |
+| ADR-004 | iOS MVP 仅远程模式 | 编译静态库 | 沙盒限制 + 工作量；后续再做静态库方案 | **Resolved by ADR-007** |
+| ADR-005 | UI 层使用 Riverpod | Provider / Bloc | 类型安全、可组合、社区活跃 | 生效 |
+| ADR-006 | aria2 作为 git submodule（不 fork） | 复制源码 / vendoring | 易于跟随 upstream 更新，体积可控 | 生效 |
+| ADR-007 | **所有原生平台默认内嵌 libaria2（Dart FFI）**；保留子进程作为兜底/调试通道 | 继续 ADR-001 子进程模式 | 进程数 ↓、iOS 沙盒可用、启动时间 ↓、可同步事件 | **生效（默认引擎）** |
+
+### ADR-007：默认改用内嵌 libaria2（Dart FFI）
+
+- **背景**：ADR-001 选择子进程模型，但带来 iOS 沙盒不可用、桌面/移动需附带额外二进制、子进程崩溃感知滞后等问题。
+- **决策**：在所有原生平台（macOS / Linux / Windows / Android / iOS）默认使用 [packages/aria2_native](../packages/aria2_native/) FFI 插件，把 libaria2 静态链接进应用进程；通过 [`LibraryDaemon`](../lib/aria2/daemon/library_daemon.dart) + [`Aria2InProcessTransport`](../lib/aria2/client/in_process_transport.dart) 把 JSON-RPC 等价调用翻译为 libaria2 C ABI。
+- **兜底**：[`LocalDaemon`](../lib/aria2/daemon/local_daemon.dart)（aria2c 子进程）保留为可选引擎，由设置项 `LocalEngine.subprocess` 切换；`AppSettings.fallbackToSubprocess` 控制 FFI 初始化失败时是否自动回退。
+- **Web**：仍仅支持 [`RemoteDaemon`](../lib/aria2/daemon/remote_daemon.dart)（浏览器无法运行原生代码）。
+- **绑定层**：libaria2 是 C++ API，无法直接被 Dart FFI（仅 C ABI）绑定，故在 [packages/aria2_native/src/aria2_ffi.{h,cc}](../packages/aria2_native/src/aria2_ffi.h) 提供 `extern "C"` 薄封装；状态/选项序列化为 JSON 字符串以复用 [`Aria2Client`](../lib/aria2/client/aria2_client.dart) 原有解析路径。
+- **事件**：libaria2 的 `DownloadEventCallback` 经 `NativeCallable.listener` 跨线程推入 Dart `Stream`，再适配为现有的 [`Aria2NotificationSource`](../lib/aria2/client/ws_listener.dart) 形态，UI 层零改动。
+- **构建**：每平台一份脚本：[scripts/build_libaria2_macos.sh](../scripts/build_libaria2_macos.sh)、`_linux.sh`、`_windows.sh`、`_android.sh`、`_ios.sh`；产物落到 `packages/aria2_native/prebuilt/<platform>/<arch>/`，FFI 插件 CMake/podspec 自动检测：未发现产物时编译为 **stub-only** 版本（每个入口返回 `ARIA2_FFI_ERR_UNAVAILABLE`），让 Dart 侧自动回退到子进程。
+- **依赖**：OpenSSL、c-ares、sqlite3、zlib 等以静态库形式链接，避免运行时依赖。各平台依赖落入 `prebuilt/<...>/deps/*.a`。
+- **包体积**：单平台预估 +6 ~ 12 MB（静态 strip 后）。
+- **取舍**：单进程单 Session 限制由 libaria2 决定（[third_party/aria2/src/includes/aria2/aria2.h](../third_party/aria2/src/includes/aria2/aria2.h) 文档），引擎切换通过 `ref.invalidate(aria2DaemonProvider)` 重建 daemon 实现优雅迁移。
 
 > 后续重要决策按 `ADR-NNN` 编号继续追加。

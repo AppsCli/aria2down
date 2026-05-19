@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>aria2down</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 32rem; margin: 1rem; }
+      label { display: block; margin-top: 1rem; font-weight: 600; }
+      input { width: 100%; margin-top: 0.25rem; padding: 0.5rem; box-sizing: border-box; }
+    </style>
+  </head>
+  <body>
+    <h1>aria2down</h1>
+    <label>JSON-RPC URL <input id="rpcUrl" type="url" /></label>
+    <label>RPC secret <input id="secret" type="password" /></label>
+    <button id="save" type="button">Save</button>
+    <button id="test" type="button">Test connection</button>
+    <button id="importConfig" type="button">Import from clipboard (JSON)</button>
+    <p>Paste JSON from aria2down Settings → Copy RPC config for extension.</p>
+    <p id="status"></p>
+    <script src="options.js"></script>
+  </body>
+</html>

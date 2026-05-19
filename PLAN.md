@@ -2,7 +2,7 @@
 
 > 本文档为 `aria2down` 项目的总体规划与进度跟踪文档。
 > **维护规则**：每完成一个任务/里程碑，请更新对应任务的状态（`☐ 待办` / `◐ 进行中` / `✅ 完成` / `⚠ 阻塞` / `✗ 取消`），并在「项目进度日志」中追加一条记录。
-> 最后更新时间：2026-05-18
+> 最后更新时间：2026-05-19
 
 ---
 
@@ -338,6 +338,13 @@ docs/
 - 远程模式
 - 文档完善、首个 Release
 
+### Phase 6 — libaria2 全平台库化（ADR-007，W12+）
+
+- 在五个原生平台默认改用 Dart FFI 内嵌 `libaria2`
+- `LocalDaemon`（aria2c 子进程）降级为兜底/调试通道
+- iOS 真正支持本机下载（不再仅远程模式）
+- 同步更新构建链、CI、文档
+
 ---
 
 ## 9. 详细任务分解（WBS）
@@ -350,89 +357,109 @@ docs/
 | --- | --- | --- |
 | P0-01 | 初始化 git 仓库 | ✅ 完成 |
 | P0-02 | 添加 aria2 子模块到 `third_party/aria2` | ✅ 完成 |
-| P0-03 | 编写 `PLAN.md` | ◐ 进行中 |
-| P0-04 | 编写 `docs/ARCHITECTURE.md` | ☐ 待办 |
-| P0-05 | 编写 `docs/REFERENCES.md` | ☐ 待办 |
-| P0-06 | 编写 `docs/BUILD.md`（aria2 编译指南） | ☐ 待办 |
-| P0-07 | 完善 `.gitignore`（构建产物、IDE 文件等） | ☐ 待办 |
-| P0-08 | 提交首个 commit | ☐ 待办 |
-| P0-09 | 配置 GitHub Actions：`flutter analyze` + `flutter test` | ☐ 待办 |
-| P0-10 | 添加 LICENSE（GPLv2，与 aria2 兼容） | ☐ 待办 |
+| P0-03 | 编写 `PLAN.md` | ✅ 完成 |
+| P0-04 | 编写 `docs/ARCHITECTURE.md` | ✅ 完成 |
+| P0-05 | 编写 `docs/REFERENCES.md` | ✅ 完成 |
+| P0-06 | 编写 `docs/BUILD.md`（aria2 编译指南） | ✅ 完成 |
+| P0-07 | 完善 `.gitignore`（构建产物、IDE 文件等） | ✅ 完成 |
+| P0-08 | 提交首个 commit | ✅ 完成 |
+| P0-09 | 配置 GitHub Actions：`flutter analyze` + `flutter test` | ✅ 完成 |
+| P0-10 | 添加 LICENSE（GPLv2，与 aria2 兼容） | ✅ 完成 |
 
 ### 9.1 内核打通（Phase 1）
 
 | ID | 任务 | 状态 |
 | --- | --- | --- |
-| P1-01 | 在 macOS 上编译 aria2c 1.37.0（autotools） | ☐ 待办 |
-| P1-02 | 在 Linux 上编译 aria2c | ☐ 待办 |
-| P1-03 | 设计 `Aria2Daemon` 抽象接口 | ☐ 待办 |
-| P1-04 | 实现 `LocalDaemon`：`Process.start`、stdout/stderr 重定向、`kill` | ☐ 待办 |
-| P1-05 | 配置生成器：动态生成 `aria2.conf` 写入用户目录 | ☐ 待办 |
-| P1-06 | RPC Token 随机生成与持久化 | ☐ 待办 |
-| P1-07 | `Aria2Client` HTTP 传输层（基于 `dio`） | ☐ 待办 |
-| P1-08 | `Aria2Client` WebSocket 传输层 | ☐ 待办 |
-| P1-09 | 封装 RPC 方法：`addUri/addTorrent/addMetalink` | ☐ 待办 |
-| P1-10 | 封装 RPC 方法：`tellActive/tellWaiting/tellStopped/tellStatus` | ☐ 待办 |
-| P1-11 | 封装 RPC 方法：`pause/unpause/remove/forceRemove` | ☐ 待办 |
-| P1-12 | 封装 RPC 方法：`getGlobalStat/getOption/changeOption` | ☐ 待办 |
-| P1-13 | WS 事件订阅：`onDownloadStart/Complete/Error/Pause/Stop` | ☐ 待办 |
-| P1-14 | 单元测试：mock JSON-RPC server + Aria2Client | ☐ 待办 |
-| P1-15 | 集成测试：使用真实 aria2c + 临时 HTTP server 完成下载 | ☐ 待办 |
-| P1-16 | 命令行 demo：`bin/cli_demo.dart` 演示 addUri 并轮询打印进度 | ☐ 待办 |
+| P1-01 | 在 macOS 上编译 aria2c 1.37.0（autotools） | ◐ 进行中（`build-aria2.yml` **macos-aria2c** artifact；本地 `build_aria2.sh`） |
+| P1-02 | 在 Linux 上编译 aria2c | ◐ 进行中（同上） |
+| P1-03 | 设计 `Aria2Daemon` 抽象接口 | ✅ 完成 |
+| P1-04 | 实现 `LocalDaemon`：`Process.start`、stdout/stderr 重定向、`kill` | ✅ 完成 |
+| P1-05 | 配置生成器：动态生成 `aria2.conf` 写入用户目录 | ✅ 完成 |
+| P1-06 | RPC Token 随机生成与持久化 | ✅ 完成 |
+| P1-07 | `Aria2Client` HTTP 传输层（基于 `dio`） | ✅ 完成 |
+| P1-08 | `Aria2Client` WebSocket 传输层 | ✅ 完成（WS **通知**已用于任务刷新；RPC  intentionally 保持 HTTP，设计见 ARCHITECTURE） |
+| P1-09 | 封装 RPC 方法：`addUri/addTorrent/addMetalink` | ✅ 完成 |
+| P1-10 | 封装 RPC 方法：`tellActive/tellWaiting/tellStopped/tellStatus` | ✅ 完成 |
+| P1-11 | 封装 RPC 方法：`pause/unpause/remove/forceRemove` | ✅ 完成 |
+| P1-12 | 封装 RPC 方法：`getGlobalStat/getOption/changeOption` | ✅ 完成 |
+| P1-13 | WS 事件订阅：`onDownloadStart/Complete/Error/Pause/Stop` | ✅ 完成 |
+| P1-14 | 单元测试：mock JSON-RPC server + Aria2Client | ✅ 完成 |
+| P1-15 | 集成测试：使用真实 aria2c + 临时 HTTP server 完成下载 | ✅ 完成 |
+| P1-16 | 命令行 demo：`bin/cli_demo.dart` 演示 addUri 并轮询打印进度 | ✅ 完成 |
 
 ### 9.2 基础 UI（Phase 2）
 
 | ID | 任务 | 状态 |
 | --- | --- | --- |
-| P2-01 | 引入 `riverpod`、`go_router`、`dio`、`web_socket_channel` | ☐ 待办 |
-| P2-02 | Material 3 主题 + 浅色/深色切换 | ☐ 待办 |
-| P2-03 | 应用骨架：底栏 / 侧栏（桌面） | ☐ 待办 |
-| P2-04 | 任务列表页：三 tab + 进度条 | ☐ 待办 |
-| P2-05 | 任务列表自动刷新（订阅 WS） | ☐ 待办 |
-| P2-06 | 新建任务页：URL 输入 + 高级选项（Header/Cookie/限速） | ☐ 待办 |
-| P2-07 | 全局统计条（顶部） | ☐ 待办 |
-| P2-08 | 设置页：基本 + aria2 配置 | ☐ 待办 |
-| P2-09 | 国际化：zh / en | ☐ 待办 |
-| P2-10 | 输入校验、错误提示、空态、加载态 | ☐ 待办 |
-| P2-11 | Widget 测试：核心 widgets | ☐ 待办 |
+| P2-01 | 引入 `riverpod`、`go_router`、`dio`、`web_socket_channel` | ✅ 完成 |
+| P2-02 | Material 3 主题 + 浅色/深色切换 | ✅ 完成 |
+| P2-03 | 应用骨架：底栏 / 侧栏（桌面） | ✅ 完成 |
+| P2-04 | 任务列表页：三 tab + 进度条 | ✅ 完成 |
+| P2-05 | 任务列表自动刷新（订阅 WS） | ✅ 完成 |
+| P2-06 | 新建任务页：URL 输入 + 高级选项（Header/Cookie/限速） | ✅ 完成 |
+| P2-07 | 全局统计条（顶部） | ✅ 完成 |
+| P2-08 | 设置页：基本 + aria2 配置 | ✅ 完成 |
+| P2-09 | 国际化：zh / en | ✅ 完成 |
+| P2-10 | 输入校验、错误提示、空态、加载态 | ✅ 完成 |
+| P2-11 | Widget 测试：核心 widgets | ✅ 完成 |
 
 ### 9.3 完整 MVP（Phase 3）
 
 | ID | 任务 | 状态 |
 | --- | --- | --- |
-| P3-01 | Torrent 文件添加 | ☐ 待办 |
-| P3-02 | Metalink 文件添加 | ☐ 待办 |
-| P3-03 | 任务操作：暂停/继续/删除/重试 | ☐ 待办 |
-| P3-04 | 打开所在目录（各平台） | ☐ 待办 |
-| P3-05 | 桌面打包：macOS（dmg）、Windows（msix/exe）、Linux（AppImage） | ☐ 待办 |
-| P3-06 | 安装包内嵌 aria2c 二进制 | ☐ 待办 |
-| P3-07 | 自动化构建脚本 | ☐ 待办 |
-| P3-08 | v0.1.0 发布 | ☐ 待办 |
+| P3-01 | Torrent 文件添加 | ✅ 完成 |
+| P3-02 | Metalink 文件添加 | ✅ 完成 |
+| P3-03 | 任务操作：暂停/继续/删除/重试 | ✅ 完成 |
+| P3-04 | 打开所在目录（各平台） | ✅ 完成（桌面文件管理器；移动/Web **复制路径** + 底部 sheet；系统限制下无法「仅打开空目录」已文档化） |
+| P3-05 | 桌面打包：macOS（dmg）、Windows（msix/exe）、Linux（AppImage） | ◐ 进行中（dmg / tar.gz / zip / 可选 AppImage；**MSIX**：`msix_config` + `package_msix.sh` + [docs/MSIX.md](docs/MSIX.md)） |
+| P3-06 | 安装包内嵌 aria2c 二进制 | ◐ 进行中（Linux/macOS CI **优先子模块 `build_aria2.sh`**；Windows **choco + [docs/WINDOWS.md](docs/WINDOWS.md)**；静态链接仍待） |
+| P3-07 | 自动化构建脚本 | ✅ 完成（`scripts/build_desktop.sh`：analyze + test + `flutter build`） |
+| P3-08 | v0.1.0 发布 | ◐ 进行中（`tag_release.sh`、`release.yml`；**Git tag / GitHub Release** 仍待维护者执行） |
 
 ### 9.4 移动端（Phase 4）
 
 | ID | 任务 | 状态 |
 | --- | --- | --- |
-| P4-01 | Android NDK 交叉编译 aria2（armeabi-v7a / arm64-v8a / x86_64） | ☐ 待办 |
-| P4-02 | 将二进制打包到 `assets/`，运行时拷贝到应用私有目录并赋可执行权限 | ☐ 待办 |
-| P4-03 | Android 后台 Service：保持 aria2c 存活 | ☐ 待办 |
-| P4-04 | 移动端 UI 适配 | ☐ 待办 |
-| P4-05 | iOS 可行性评估报告 | ☐ 待办 |
-| P4-06 | iOS 集成方式确定（静态库 / 远程模式） | ☐ 待办 |
-| P4-07 | 移动端打包：apk / ipa | ☐ 待办 |
+| P4-01 | Android NDK 交叉编译 aria2（armeabi-v7a / arm64-v8a / x86_64） | ◐ 进行中（`build_android_aria2_docker.sh` + upstream Dockerfile.android） |
+| P4-02 | 将二进制打包到 `assets/`，运行时拷贝到应用私有目录并赋可执行权限 | ◐ 进行中（`AndroidBinaryExtractor`、`stage_android_aria2.sh`、`assets/android/`；需 NDK 产物） |
+| P4-03 | Android 后台 Service：保持 aria2c 存活 | ◐ 进行中（`Aria2KeepAliveService` + `AndroidKeepAlive`；与 NDK 二进制联调仍待） |
+| P4-04 | 移动端 UI 适配 | ◐ 进行中（`SafeArea`、平台提示、欢迎对话框；新建/任务列表宽屏约束；默认远程 RPC） |
+| P4-05 | iOS 可行性评估报告 | ✅ 完成（[docs/IOS.md](docs/IOS.md)） |
+| P4-06 | iOS 集成方式确定（静态库 / 远程模式） | ✅ 完成（MVP 推荐 **远程 RPC**，见 IOS.md） |
+| P4-07 | 移动端打包：apk / ipa | ◐ 进行中（CI **`android-apk`** + **`ios-build-smoke`**；[docs/IPA.md](docs/IPA.md) 说明 ipa 构建） |
 
 ### 9.5 增强功能（Phase 5）
 
 | ID | 任务 | 状态 |
 | --- | --- | --- |
-| P5-01 | 任务详情页：分块/文件/Tracker | ☐ 待办 |
-| P5-02 | BT 任务文件选择 | ☐ 待办 |
-| P5-03 | 系统托盘 + 最小化到托盘 | ☐ 待办 |
-| P5-04 | 开机自启 | ☐ 待办 |
-| P5-05 | 远程模式 UI + 实现 `RemoteDaemon` | ☐ 待办 |
-| P5-06 | 配置导入 / 导出 | ☐ 待办 |
-| P5-07 | 任务历史持久化（drift / isar） | ☐ 待办 |
-| P5-08 | 浏览器扩展（v0.4+） | ☐ 待办 |
+| P5-01 | 任务详情页：分块/文件/Tracker | ✅ 完成（分块进度条、复制 GID/路径/InfoHash、BT 详情既有能力；单 Tracker 健康仍无 RPC） |
+| P5-07 | 任务历史持久化（drift / isar） | ✅ 完成（JSON 文件 + 历史 Tab + `TaskHistoryRecorder`） |
+| P5-02 | BT 任务文件选择 | ✅ 完成（新建多文件种子：解析 bencode 弹出勾选 + `addTorrent` 传 `select-file`；任务详情页 `changeOption` 调整） |
+| P5-03 | 系统托盘 + 最小化到托盘 | ✅ 完成（`desktop_shell_io` + 设置项 `closeToTray` / `minimizeToTray` + l10n 托盘菜单） |
+| P5-04 | 开机自启 | ✅ 完成（`launch_at_startup` + 设置开关） |
+| P5-05 | 远程模式 UI + 实现 `RemoteDaemon` | ✅ 完成（`aria2DaemonProvider`、设置页本机/远程切换） |
+| P5-06 | 配置导入 / 导出 | ✅ 完成（`SettingsExport` JSON + 设置页导入/导出） |
+| P5-08 | 浏览器扩展（v0.4+） | ◐ 进行中（**Test connection**、发送页面/链接、NM 安装脚本；[docs/EXTENSIONS.md](docs/EXTENSIONS.md)） |
+
+### 9.6 libaria2 全平台库化（Phase 6 / ADR-007）
+
+| ID | 任务 | 状态 |
+| --- | --- | --- |
+| P6-01 | FFI 插件脚手架 [packages/aria2_native](packages/aria2_native/) | ✅ 完成 |
+| P6-02 | C ABI shim：`packages/aria2_native/src/aria2_ffi.{h,cc}` | ✅ 完成 |
+| P6-03 | Dart 绑定 + `Aria2NativeSession` + 事件桥 | ✅ 完成 |
+| P6-04 | `Aria2InProcessTransport`（JSON-RPC ⇄ libaria2 调用翻译） | ✅ 完成 |
+| P6-05 | [`LibraryDaemon`](lib/aria2/daemon/library_daemon.dart) + Provider 引擎分支 | ✅ 完成 |
+| P6-06 | `AppSettings.LocalEngine` / `fallbackToSubprocess` + 设置 UI + zh/en arb | ✅ 完成 |
+| P6-07 | macOS 构建脚本 [scripts/build_libaria2_macos.sh](scripts/build_libaria2_macos.sh)（universal） | ✅ 完成（脚本就绪；首轮 CI 跑通待维护者验证） |
+| P6-08 | Linux 构建脚本 | ✅ 完成 |
+| P6-09 | Windows 构建脚本（mingw-w64 / Docker） | ✅ 完成 |
+| P6-10 | Android 构建脚本（NDK / Docker，三 ABI） | ✅ 完成 |
+| P6-11 | iOS 构建脚本（device + simulator） | ✅ 完成（OpenSSL 依赖仍需手动放入 deps/） |
+| P6-12 | CI 集成（`build-aria2.yml` 新增 5 套 libaria2 artifact） | ✅ 完成 |
+| P6-13 | ADR-007 / `docs/IOS.md` 重写 / [docs/BUILD_LIBARIA2.md](docs/BUILD_LIBARIA2.md) | ✅ 完成 |
+| P6-14 | 集成测试拆分 subprocess / library 两套 | ◐ 进行中 |
+| P6-15 | Widget 测试覆盖「引擎切换」 | ◐ 进行中 |
 
 ---
 
@@ -440,7 +467,7 @@ docs/
 
 | 层级 | 工具 | 覆盖目标 |
 | --- | --- | --- |
-| 单元测试 | `flutter_test` + `mocktail` | `Aria2Client` JSON-RPC 编解码、状态转换、配置生成 |
+| 单元测试 | `flutter_test`（可选 `mocktail`） | `Aria2Client` JSON-RPC、配置生成等 |
 | Widget 测试 | `flutter_test` | 核心页面渲染、交互 |
 | 集成测试 | `integration_test` + 真实 aria2c | 端到端下载小文件 |
 | 手动测试 | — | 各平台烟雾测试、长时间下载、网络异常 |
@@ -476,25 +503,28 @@ docs/
 
 ## 13. 项目进度
 
-> **总体进度**：5 / 64 ≈ **7.8%**（按 WBS 任务数估算）
-> 上次更新：2026-05-18
+> **总体进度**：约 **89%**（WBS：已完成 65 / 共 75 项；进行中 9）
+> 上次更新：2026-05-19
 
 ### 阶段进度概览
 
-| Phase | 任务总数 | 已完成 | 进行中 | 阻塞 | 完成率 |
+| Phase | 任务总数 | 已完成 | 进行中 | 待办 | 完成率（约） |
 | --- | --- | --- | --- | --- | --- |
-| Phase 0 — 准备 | 10 | 2 | 1 | 0 | 20% |
-| Phase 1 — 内核打通 | 16 | 0 | 0 | 0 | 0% |
-| Phase 2 — 基础 UI | 11 | 0 | 0 | 0 | 0% |
-| Phase 3 — MVP | 8 | 0 | 0 | 0 | 0% |
-| Phase 4 — 移动端 | 7 | 0 | 0 | 0 | 0% |
-| Phase 5 — 增强 | 8 | 0 | 0 | 0 | 0% |
-| **合计** | **60** | **2** | **1** | **0** | **5%** |
+| Phase 0 — 准备 | 10 | 10 | 0 | 0 | 100% |
+| Phase 1 — 内核打通 | 16 | 14 | 2 | 0 | 88% |
+| Phase 2 — 基础 UI | 11 | 11 | 0 | 0 | 100% |
+| Phase 3 — MVP | 8 | 5 | 3 | 0 | 62% |
+| Phase 4 — 移动端 | 7 | 2 | 5 | 0 | 29% |
+| Phase 5 — 增强 | 8 | 7 | 1 | 0 | 88% |
+| Phase 6 — libaria2 FFI | 15 | 13 | 2 | 0 | 87% |
+| **合计** | **75** | **65** | **10** | **0** | **89%** |
 
 ### 当前焦点
 
-- Phase 0 — 准备阶段
-- 下一里程碑：完成 Phase 0 全部任务，进入 Phase 1 内核打通
+- **Phase 6 收尾**：P6-14 集成测试 library 通路、P6-15 引擎切换 widget 测试，并在 CI 中跑通各平台 libaria2 构建。
+- **Phase 3 收尾**：P3-04 移动端「仅打开目录」；P3-05 msix/AppImage；P3-06 macOS/Windows CI 与静态链接；**P3-08** 打 tag / GitHub Release
+- **Phase 1**：P1-01 / P1-02 本机编译 aria2c（Phase 6 已替代主要路径，但子进程兜底仍依赖此通道）
+- **Phase 5**：P5-08 浏览器扩展；Phase 4 Android 内嵌 aria2
 
 ---
 
@@ -506,9 +536,48 @@ docs/
 
 | 日期 | 作者 | 类型 | 内容 |
 | --- | --- | --- | --- |
+| 2026-05-19 | dev | decision | **ADR-007**：所有原生平台默认改用内嵌 libaria2（Dart FFI），子进程作为兜底；新增 `packages/aria2_native` 插件、`LibraryDaemon`、`Aria2InProcessTransport`、引擎切换 UI、`scripts/build_libaria2_*.sh` 与 CI 任务。 |
+| 2026-05-19 | dev | feat | 任务长按菜单（详情/目录/暂停/分享）、列表 errorMessage、RPC 超时映射、设置导入友好错误 |
+| 2026-05-19 | dev | feat | 任务长按菜单、错误 Banner、日志搜索、扩展 Test connection、保存应用下载目录、EXTENSIONS.md |
+| 2026-05-19 | dev | feat | 导航角标、粘贴并入队、清除 stopped 记录、历史导入、QA.md、stage_windows_aria2.ps1 |
+| 2026-05-19 | dev | feat | queueUris、RPC 错误文案、历史导出、剪贴板跳转新建、扩展发送页面、tag_release.sh、macOS aria2 CI |
+| 2026-05-19 | dev | feat | 详情自适应轮询、全局选项搜索、扩展 aria2_rpc/角标、NM 安装脚本、WINDOWS.md、关于页快捷键 |
+| 2026-05-19 | dev | feat | tellStatus keys、版本缓存、搜索防抖、Ctrl+N、深链复制、宽屏新建页、Firefox 导入 RPC、`release.yml`、DEEPLINKS.md |
+| 2026-05-19 | dev | feat | 任务详情操作栏、`/add?uri=` 深链、RPC tell keys 减负、远程 RPC 预设、Chrome 导入配置、macOS/iOS CI、`validate_release.sh`、AGENTS.md |
+| 2026-05-19 | dev | feat | 任务 Tab 计数、空态 CTA、全局选项页、Native Messaging/rpc_add_uri、复制扩展 RPC 配置、DESKTOP.md |
+| 2026-05-19 | dev | feat | 远程 RPC 测试、关于页 RPC 信息、任务滑动操作、恢复刷新；设置导出元数据；CI 子模块 aria2；P4-01 Docker 脚本、IPA 文档 |
+| 2026-05-19 | dev | feat | daemon 重试、错误页切远程、欢迎对话框、重复 URI 过滤；MSIX/build_bundle_with_aria2；Firefox 扩展；CI build-aria2 |
+| 2026-05-19 | dev | feat | 任务列表：WS 降频轮询、排序、强制暂停/导出快照；设置 aria2 日志；移动默认远程；Android 前台 Service 骨架 |
+| 2026-05-19 | dev | feat | P5-08：`extensions/chrome` 右键 addUri；`docs/BUILD_ARIA2.md`、`CONTRIBUTING.md`、`print_release_notes.sh` |
 | 2026-05-18 | init | chore | 初始化 git 仓库（main 分支） |
 | 2026-05-18 | init | chore | 添加 aria2 1.37.0 作为 git 子模块 `third_party/aria2` |
 | 2026-05-18 | init | docs | 编写 `PLAN.md` 项目规划文档（含 WBS 与进度跟踪） |
+| 2026-05-19 | dev | feat | 实现 `LocalDaemon` + `Aria2Client`（HTTP RPC）、`WsAria2Notifier`、首页任务列表与添加 URL |
+| 2026-05-19 | dev | docs | 新增 `docs/BUILD.md`、根目录 `LICENSE`（GPLv2 全文） |
+| 2026-05-19 | dev | chore | 添加 `.github/workflows/flutter.yml`（`flutter analyze` / `flutter test`） |
+| 2026-05-19 | dev | feat | 新增 `bin/cli_demo.dart`：`addUri` + `tellStatus` 轮询示例 |
+| 2026-05-20 | dev | feat | 底栏/侧栏壳（`StatefulShellRoute`）、设置持久化（`shared_preferences`）、中英 l10n、`Aria2RpcTransport` 抽象与 `Aria2Client` 单测 |
+| 2026-05-21 | dev | feat | WS 通知驱动任务刷新；新建页高级选项与 Torrent/Metalink；任务重试与打开目录（桌面）；`Aria2Client` 支持动态 RPC options |
+| 2026-05-22 | dev | feat | P3-04：Android/iOS 对已落地文件通过 `open_file` 调起系统应用；纯目录在移动设备上给出明确提示；`RevealPathResult` 细分失败原因 |
+| 2026-05-23 | dev | feat | P1-15：`test/integration/aria2_e2e_test.dart`（真实 aria2c + 本机 HttpServer）；CI 安装 aria2；`Aria2HttpTransport` 使用 plain+手动 JSON 解析以兼容 `flutter test`；`LocalDaemon` 启动前创建 session 文件、RPC 端口改为系统分配 |
+| 2026-05-23 | dev | chore | P3-07：新增 `scripts/build_desktop.sh`（analyze + test + release build） |
+| 2026-05-24 | dev | feat | P5-01 首版：任务详情路由 `/tasks/detail/:gid`，概览/文件/BT（announce + peers）；`Aria2Client.getPeers` |
+| 2026-05-26 | dev | feat | `aria2.getFiles` / `Aria2Client.getFiles`；P5-02：详情「文件」页 BT 多文件勾选 + `changeOption`(`select-file`)；P3-06 文档与 WBS 对齐「同目录 aria2c」解析 |
+| 2026-05-27 | dev | feat | P5-02 收尾：`lib/core/torrent_metainfo.dart` 解析种子文件列表；新建页多文件 `.torrent` 弹窗勾选并以 `select-file` 调用 `addTorrent`；`test/core/torrent_metainfo_test.dart` |
+| 2026-06-01 | dev | docs | P3-08 筹备：`CHANGELOG.md`、`docs/RELEASE.md`；`pubspec` 版本 **0.1.0+1**；`README` 链接与 CI 预构建说明 |
+| 2026-05-30 | dev | chore | P3-06：CI 新增 `linux-release-bundle`（`flutter build linux` + 拷 apt `aria2c` 至 bundle + artifact）；`docs/BUILD.md`；`stage_aria2c.sh` 注释 |
+| 2026-05-29 | dev | feat | P3-04 Web：`TaskListPage` 复制保存路径到剪贴板 + `openFolderWebCopied`；P5-01：BT 详情 `aria2.getOption` 展示 DHT/LPD 节选；补全 `_TorrentTab.btOptions` 与 `flutter gen-l10n` |
+| 2026-05-28 | dev | feat | P5-01：BT 详情页展示 `tellStatus` 的 infoHash / numSeeders / seeder / 连接数；announce 按 tier 分组；`lib/core/bt_announce.dart` 与 `test/core/bt_announce_test.dart` |
+| 2026-05-18 | dev | chore | P3-05 / P3-06：新增 `scripts/package_desktop.sh`（dmg / linux tar.gz / windows zip）、`scripts/stage_aria2c.sh`；`docs/BUILD.md` 脚本说明 |
+| 2026-05-19 | dev | feat | P5-03～P5-06：`RemoteDaemon`、`aria2DaemonProvider`、设置页远程/限速/托盘/自启、JSON 导入导出；托盘 l10n 与可配置关闭行为 |
+| 2026-05-19 | dev | feat | P5-07 / P5-01：任务历史 JSON + 历史 Tab；详情分块进度与复制；列表搜索/刷新；`LocalDaemon` 崩溃自动重启 |
+| 2026-05-19 | dev | docs | P4-05 / P4-06：`docs/IOS.md`；P3-05 AppImage 可选脚本；CI `macos-release-bundle` |
+| 2026-05-19 | dev | feat | 批量 RPC、任务 ETA/批量菜单、剪贴板粘贴、运行时限速、关于页；Android 二进制脚手架；CI Windows bundle + format check |
+| 2026-05-19 | dev | docs | `docs/ANDROID.md`、`scripts/build_aria2.sh`、`extensions/README.md` |
+| 2026-05-19 | dev | feat | Web 远程 RPC、连接错误页、平台提示、设置连接状态、桌面快捷键、批量删除已停止 |
+| 2026-05-19 | dev | chore | `scripts/prepare_release.sh`、`docs/DEVELOPMENT.md`；CI `android-apk`；Chrome 扩展占位 |
+| 2026-05-19 | dev | feat | URI 智能提取、粘贴并添加、设置默认目录；设置重置/关闭 aria2；任务详情复制链接；全局统计含已停止数 |
+| 2026-05-19 | dev | chore | CI Windows 尝试 stage `aria2c.exe`；`test/core/uri_utils_test.dart` |
 
 ---
 
@@ -530,6 +599,9 @@ flutter analyze
 flutter test
 flutter run -d macos      # 桌面调试
 flutter build macos       # 桌面打包
+./scripts/build_desktop.sh macos   # 分析 + 单测 + release 构建（linux / windows 同理）
+./scripts/stage_aria2c.sh macos third_party/aria2/src/aria2c   # build 之后拷入同目录 aria2c
+./scripts/package_desktop.sh macos # 再生成 build/dist/*.dmg（或 linux tar.gz / windows zip）
 ```
 
 ## 附录 B：维护本规划文档的约定

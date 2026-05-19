@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "aria2down",
+  "version": "0.1.0",
+  "description": "Send download links to aria2 via JSON-RPC.",
+  "permissions": ["contextMenus", "storage"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "action": {
+    "default_title": "aria2down options"
+  },
+  "options_page": "options.html",
+  "background": {
+    "service_worker": "background.js"
+  }
+}

@@ -1,0 +1,5 @@
+# Prebuilt artifacts are produced by scripts/build_libaria2_*.sh and dropped
+# here. They are excluded from VCS — generate locally or download via CI.
+*
+!.gitignore
+!README.md

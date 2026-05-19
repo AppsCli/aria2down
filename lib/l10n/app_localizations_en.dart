@@ -1,0 +1,931 @@
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
+import 'app_localizations.dart';
+
+// ignore_for_file: type=lint
+
+/// The translations for English (`en`).
+class AppLocalizationsEn extends AppLocalizations {
+  AppLocalizationsEn([String locale = 'en']) : super(locale);
+
+  @override
+  String get appTitle => 'aria2down';
+
+  @override
+  String get navTasks => 'Tasks';
+
+  @override
+  String get navAdd => 'New';
+
+  @override
+  String get navSettings => 'Settings';
+
+  @override
+  String get loadingAria2 => 'Starting aria2…';
+
+  @override
+  String get loadingRemoteAria2 => 'Connecting to remote aria2…';
+
+  @override
+  String get loadingSettings => 'Loading settings…';
+
+  @override
+  String get settingsTitle => 'Settings';
+
+  @override
+  String get appearance => 'Appearance';
+
+  @override
+  String get theme => 'Theme';
+
+  @override
+  String get themeSystem => 'System';
+
+  @override
+  String get themeLight => 'Light';
+
+  @override
+  String get themeDark => 'Dark';
+
+  @override
+  String get language => 'Language';
+
+  @override
+  String get langSystem => 'System default';
+
+  @override
+  String get langEnglish => 'English';
+
+  @override
+  String get langChinese => 'Chinese';
+
+  @override
+  String get downloadDirectory => 'Default download folder';
+
+  @override
+  String get downloadDirectoryPick => 'Choose folder';
+
+  @override
+  String get downloadDirectoryClear => 'Use system default';
+
+  @override
+  String get aria2BinaryPath => 'aria2c path (optional)';
+
+  @override
+  String get aria2BinaryHint => 'Leave empty to search PATH';
+
+  @override
+  String get save => 'Save';
+
+  @override
+  String get restartAria2Hint => 'aria2 will restart to apply path changes.';
+
+  @override
+  String get tasksTitle => 'Tasks';
+
+  @override
+  String get tabActive => 'Active';
+
+  @override
+  String get tabWaiting => 'Waiting';
+
+  @override
+  String get tabStopped => 'Stopped';
+
+  @override
+  String get tabHistory => 'History';
+
+  @override
+  String get emptyHistory => 'No local history yet';
+
+  @override
+  String get searchTasks => 'Search tasks';
+
+  @override
+  String get searchTasksHint => 'Filter by name or GID';
+
+  @override
+  String get refreshTasks => 'Refresh';
+
+  @override
+  String get historyClearTitle => 'Clear history';
+
+  @override
+  String get historyClearMessage =>
+      'Removes saved finished tasks on this device. Does not affect the current aria2 queue.';
+
+  @override
+  String get historyClearConfirm => 'Clear';
+
+  @override
+  String get mobilePathSheetTitle => 'Save path';
+
+  @override
+  String get mobilePathCopied => 'Path copied to clipboard';
+
+  @override
+  String get copyPath => 'Copy path';
+
+  @override
+  String get snackCopied => 'Copied';
+
+  @override
+  String get copyValue => 'Copy';
+
+  @override
+  String get taskDetailPieceProgress => 'Piece completion';
+
+  @override
+  String get taskDetailOverallProgress => 'Overall progress';
+
+  @override
+  String speedGlobal(String down, String up, int active, int waiting) {
+    return '↓ $down  ↑ $up  active $active  waiting $waiting';
+  }
+
+  @override
+  String speedGlobalExtended(
+    String down,
+    String up,
+    int active,
+    int waiting,
+    int stopped,
+  ) {
+    return '↓ $down  ↑ $up  active $active  waiting $waiting  stopped $stopped';
+  }
+
+  @override
+  String aria2Version(String version) {
+    return 'aria2 $version';
+  }
+
+  @override
+  String get wsConnected => 'WebSocket notifications connected';
+
+  @override
+  String get wsPolling => 'WebSocket unavailable; using periodic refresh';
+
+  @override
+  String get emptyActive => 'No active downloads';
+
+  @override
+  String get emptyWaiting => 'No waiting tasks';
+
+  @override
+  String get emptyStopped => 'No stopped tasks';
+
+  @override
+  String get hintUrls =>
+      'HTTP(S) / FTP / magnet links; separate with space or newline';
+
+  @override
+  String get addButton => 'Add';
+
+  @override
+  String get snackAdded => 'Download added';
+
+  @override
+  String snackAddFailed(String error) {
+    return 'Failed: $error';
+  }
+
+  @override
+  String get snackInvalidUrl => 'No valid URLs in input';
+
+  @override
+  String get snackSaved => 'Settings saved';
+
+  @override
+  String get advancedOptions => 'Advanced…';
+
+  @override
+  String get userAgent => 'User-Agent';
+
+  @override
+  String get headersHint => 'HTTP headers, one per line: Name: Value';
+
+  @override
+  String get cookie => 'Cookie header value (optional)';
+
+  @override
+  String get speedLimitHint =>
+      'Speed limit (aria2 max-download-limit), e.g. 2M or 500K';
+
+  @override
+  String get pickTorrent => 'Pick .torrent';
+
+  @override
+  String get pickMetalink => 'Pick Metalink (.metalink / .meta4)';
+
+  @override
+  String get retry => 'Retry';
+
+  @override
+  String get openFolder => 'Open folder';
+
+  @override
+  String get openFolderWebCopied =>
+      'Copied the save path to the clipboard (browsers cannot open a local folder; path is from the aria2 server).';
+
+  @override
+  String get openFolderFailed => 'Could not open folder';
+
+  @override
+  String get openFolderMobileDirOnly =>
+      'On mobile, opening only a folder in the file manager isn’t supported. Wait until a file exists, then open that file from the list.';
+
+  @override
+  String get openFileFailed =>
+      'Could not open the file (invalid path, no app, or permission denied).';
+
+  @override
+  String get snackRetryQueued => 'Download re-queued';
+
+  @override
+  String get snackNothingToRetry => 'No links to retry for this task';
+
+  @override
+  String get torrentNote =>
+      'Torrent/Metalink is sent to the local aria2 over RPC only.';
+
+  @override
+  String get dialogCancel => 'Cancel';
+
+  @override
+  String get torrentSelectDialogTitle => 'Choose files to download';
+
+  @override
+  String get torrentSelectDialogConfirm => 'Add';
+
+  @override
+  String get about => 'About';
+
+  @override
+  String get aboutDesc => 'Cross-platform download client powered by aria2.';
+
+  @override
+  String appVersionLabel(String version) {
+    return 'Version $version';
+  }
+
+  @override
+  String get folderPickerUnavailable =>
+      'Folder picker is not available on this platform.';
+
+  @override
+  String get taskDetailTitle => 'Task details';
+
+  @override
+  String taskDetailLoadFailed(String error) {
+    return 'Load failed: $error';
+  }
+
+  @override
+  String get taskDetailTabOverview => 'Overview';
+
+  @override
+  String get taskDetailTabFiles => 'Files';
+
+  @override
+  String get taskDetailTabTorrent => 'Torrent';
+
+  @override
+  String get taskDetailFieldGid => 'GID';
+
+  @override
+  String get taskDetailFieldStatus => 'Status';
+
+  @override
+  String get taskDetailFieldDir => 'Directory';
+
+  @override
+  String get taskDetailFieldTotal => 'Total size';
+
+  @override
+  String get taskDetailFieldCompleted => 'Completed';
+
+  @override
+  String get taskDetailFieldUploadLength => 'Uploaded';
+
+  @override
+  String get taskDetailFieldDownloadSpeed => 'Download speed';
+
+  @override
+  String get taskDetailFieldUploadSpeed => 'Upload speed';
+
+  @override
+  String get taskDetailFieldConnections => 'Connections';
+
+  @override
+  String get taskDetailFieldPieces => 'Pieces';
+
+  @override
+  String get taskDetailFieldBitfield => 'Piece bitfield (hex)';
+
+  @override
+  String taskDetailPieceSummary(String count, String pieceSize) {
+    return '$count × $pieceSize';
+  }
+
+  @override
+  String get taskDetailFieldError => 'Error';
+
+  @override
+  String get taskDetailNoFiles => 'No file entries';
+
+  @override
+  String taskDetailFileProgress(String done, String total) {
+    return '$done / $total';
+  }
+
+  @override
+  String taskDetailFileProgressSelected(
+    String done,
+    String total,
+    String selected,
+  ) {
+    return '$done / $total · selected=$selected';
+  }
+
+  @override
+  String get taskDetailNotTorrent => 'This download is not a BitTorrent task.';
+
+  @override
+  String get taskDetailTorrentName => 'Torrent name';
+
+  @override
+  String get taskDetailTorrentMode => 'Mode';
+
+  @override
+  String get taskDetailAnnounceList => 'Trackers / announce';
+
+  @override
+  String taskDetailAnnounceTier(int tier) {
+    return 'Tier $tier';
+  }
+
+  @override
+  String get taskDetailBtMetricsTitle => 'Transfer & connectivity';
+
+  @override
+  String get taskDetailFieldInfoHash => 'Info hash';
+
+  @override
+  String get taskDetailFieldNumSeeders => 'Seeders (tracker-reported)';
+
+  @override
+  String get taskDetailFieldLocalSeeder => 'This client is seeding';
+
+  @override
+  String get taskDetailFieldBtConnections => 'Connections';
+
+  @override
+  String get taskDetailTrackerRpcNote =>
+      'aria2 JSON-RPC does not expose per-tracker health; values below are task-level.';
+
+  @override
+  String get taskDetailBtRpcOptionsTitle => 'BitTorrent options (getOption)';
+
+  @override
+  String get taskDetailBtRpcOptionsNote =>
+      'Effective values for this download in aria2.';
+
+  @override
+  String get taskDetailOptionEnableDht => 'DHT (IPv4)';
+
+  @override
+  String get taskDetailOptionEnableDht6 => 'DHT (IPv6)';
+
+  @override
+  String get taskDetailOptionBtEnableLpd => 'Local peer discovery (LPD)';
+
+  @override
+  String get taskDetailBoolYes => 'Yes';
+
+  @override
+  String get taskDetailBoolNo => 'No';
+
+  @override
+  String get taskDetailNoAnnounces => 'No announce list';
+
+  @override
+  String taskDetailPeersTitle(int count) {
+    return 'Peers ($count)';
+  }
+
+  @override
+  String get taskDetailPeersEmpty =>
+      'No peer data (not connected yet or task finished).';
+
+  @override
+  String get taskDetailPeerDown => 'Down';
+
+  @override
+  String get taskDetailPeerUp => 'Up';
+
+  @override
+  String get taskDetailSelectFilesHint =>
+      'Choose files to download, then apply to aria2 (waiting / paused / active tasks).';
+
+  @override
+  String get taskDetailApplyFileSelection => 'Apply file selection';
+
+  @override
+  String taskDetailFileSelectionApplyFailed(String error) {
+    return 'Apply failed: $error';
+  }
+
+  @override
+  String get taskDetailNeedOneFileSelected =>
+      'Keep at least one file selected.';
+
+  @override
+  String get taskDetailFileSelectionSaved => 'File selection applied.';
+
+  @override
+  String get settingsConnection => 'Connection';
+
+  @override
+  String get connectionLocal => 'Local aria2';
+
+  @override
+  String get connectionRemote => 'Remote RPC';
+
+  @override
+  String get settingsEngine => 'Local engine';
+
+  @override
+  String get engineLibrary => 'Embedded library (libaria2)';
+
+  @override
+  String get engineSubprocess => 'aria2c subprocess';
+
+  @override
+  String get engineLibraryDesc =>
+      'Runs aria2 in-process via FFI. Lower memory, works on iOS, no extra binary required.';
+
+  @override
+  String get engineSubprocessDesc =>
+      'Launches the bundled aria2c executable. Useful as a fallback when libaria2 fails to initialize.';
+
+  @override
+  String get engineFallbackToSubprocess => 'Auto-fallback to subprocess';
+
+  @override
+  String get engineFallbackToSubprocessDesc =>
+      'When the embedded engine cannot start, retry with the aria2c subprocess.';
+
+  @override
+  String get engineUnavailableBanner =>
+      'Embedded engine unavailable in this build — falling back to subprocess.';
+
+  @override
+  String engineInitFailed(String error) {
+    return 'Embedded engine failed to start: $error';
+  }
+
+  @override
+  String engineCurrent(String engine) {
+    return 'Active engine: $engine';
+  }
+
+  @override
+  String get engineLibraryShort => 'library';
+
+  @override
+  String get engineSubprocessShort => 'subprocess';
+
+  @override
+  String get engineRemoteShort => 'remote';
+
+  @override
+  String get remoteRpcEndpoint => 'RPC endpoint';
+
+  @override
+  String get remoteRpcEndpointHint =>
+      'e.g. 127.0.0.1:6800 or http://nas:6800/jsonrpc';
+
+  @override
+  String get remoteRpcSecret => 'RPC secret (token)';
+
+  @override
+  String get remoteModeHint =>
+      'Remote mode does not start a local process. Ensure aria2 RPC is enabled and the secret matches.';
+
+  @override
+  String get settingsDownloadTuning => 'Download tuning (local aria2.conf)';
+
+  @override
+  String get settingsOptionalHint => 'Leave empty for aria2 default';
+
+  @override
+  String get maxConcurrentDownloads => 'Max concurrent downloads';
+
+  @override
+  String get maxConnectionPerServer => 'Max connections per server';
+
+  @override
+  String get globalDownloadLimit => 'Global download limit';
+
+  @override
+  String get globalUploadLimit => 'Global upload limit';
+
+  @override
+  String get settingsTuningLocalOnly =>
+      'These options apply only in local aria2 mode (written to aria2.conf).';
+
+  @override
+  String get settingsDesktop => 'Desktop';
+
+  @override
+  String get closeToTray => 'Close to system tray';
+
+  @override
+  String get closeToTrayDesc =>
+      'The close button hides the window; use Quit in the tray menu to exit.';
+
+  @override
+  String get minimizeToTray => 'Minimize to tray';
+
+  @override
+  String get minimizeToTrayDesc =>
+      'Hide the window when minimized (otherwise normal minimize).';
+
+  @override
+  String get launchAtStartup => 'Launch at login';
+
+  @override
+  String get launchAtStartupDesc =>
+      'Start aria2down when you sign in (OS permissions may apply).';
+
+  @override
+  String get settingsBackup => 'Backup & restore';
+
+  @override
+  String get settingsExport => 'Export settings';
+
+  @override
+  String get settingsImport => 'Import settings';
+
+  @override
+  String get settingsExportCopied => 'Settings JSON copied to clipboard';
+
+  @override
+  String settingsExportSaved(String path) {
+    return 'Settings saved to $path';
+  }
+
+  @override
+  String get settingsImportApplied =>
+      'Settings loaded. Tap Save to persist, or edit first.';
+
+  @override
+  String settingsImportFailed(String error) {
+    return 'Import failed: $error';
+  }
+
+  @override
+  String get trayShowWindow => 'Show window';
+
+  @override
+  String get trayQuit => 'Quit';
+
+  @override
+  String get trayToolTip => 'aria2down — click to show';
+
+  @override
+  String get tasksBatchMenu => 'Batch actions';
+
+  @override
+  String get batchPauseAll => 'Pause all';
+
+  @override
+  String get batchForcePauseAll => 'Force pause all';
+
+  @override
+  String get batchExportTasks => 'Export task snapshot';
+
+  @override
+  String get batchExportTasksDone => 'Task snapshot copied to clipboard';
+
+  @override
+  String get batchUnpauseAll => 'Resume all';
+
+  @override
+  String get settingsDiagnostics => 'Diagnostics';
+
+  @override
+  String get aria2LogTitle => 'aria2 log';
+
+  @override
+  String get aria2LogSubtitle => 'Last lines from the local aria2 log file';
+
+  @override
+  String get aria2LogEmpty => 'Log file is empty or not created yet.';
+
+  @override
+  String get batchPurgeStopped => 'Purge stopped results';
+
+  @override
+  String get snackBatchDone => 'Batch action completed';
+
+  @override
+  String get pasteFromClipboard => 'Paste from clipboard';
+
+  @override
+  String get clipboardEmpty => 'Clipboard is empty';
+
+  @override
+  String get applyRuntimeLimits => 'Apply to running aria2';
+
+  @override
+  String get applyRuntimeLimitsHint =>
+      'Updates global limits without restart (local or remote).';
+
+  @override
+  String get applyRuntimeLimitsDone => 'Running options updated';
+
+  @override
+  String get applyRuntimeLimitsEmpty =>
+      'Enter at least one limit or concurrency value';
+
+  @override
+  String get aboutTitle => 'About aria2down';
+
+  @override
+  String get aboutOpenDetail => 'Version, license, and links';
+
+  @override
+  String get aboutPoweredBy => 'Download engine';
+
+  @override
+  String get aboutLicense => 'License';
+
+  @override
+  String get aboutLicenseBody =>
+      'Released under GPLv2+, compatible with aria2.';
+
+  @override
+  String get aboutLicenseLink => 'GNU GPLv2 full text';
+
+  @override
+  String get platformHintMessage =>
+      'On this device, connect to a remote aria2 RPC (NAS or a machine already running aria2). Switch to Remote RPC in Settings.';
+
+  @override
+  String get platformHintOpenSettings => 'Open settings';
+
+  @override
+  String get platformHintDismiss => 'Don\'t show again';
+
+  @override
+  String get daemonErrorTitle => 'Cannot connect to aria2';
+
+  @override
+  String get daemonErrorBinaryNotFound =>
+      'aria2c not found. Install aria2, set a path in Settings, bundle a binary in assets, or use Remote RPC.';
+
+  @override
+  String get daemonErrorWebLocal =>
+      'The browser cannot start a local aria2 process. Use Remote RPC in Settings.';
+
+  @override
+  String get daemonErrorRetry => 'Retry';
+
+  @override
+  String get daemonErrorSwitchRemote => 'Switch to remote RPC';
+
+  @override
+  String get welcomeRemoteTitle => 'Welcome to aria2down';
+
+  @override
+  String get welcomeRemoteBody =>
+      'On this device, connect to an aria2 instance that is already running (NAS, PC, or server). Open Settings → Remote RPC and enter the address and token.';
+
+  @override
+  String get snackAllDuplicates => 'These links are already in the queue';
+
+  @override
+  String snackAddedWithSkipped(int added, int skipped) {
+    return 'Added $added; skipped $skipped duplicate(s)';
+  }
+
+  @override
+  String get batchRemoveStopped => 'Remove all stopped tasks';
+
+  @override
+  String get delete => 'Delete';
+
+  @override
+  String get swipeDeleteTitle => 'Remove task?';
+
+  @override
+  String get swipeDeleteMessage =>
+      'This removes the task from aria2 (files on disk are kept unless you enabled delete-on-remove).';
+
+  @override
+  String get remoteTestConnection => 'Test connection';
+
+  @override
+  String remoteTestOk(String version, String ws) {
+    return 'Connected — aria2 $version, WebSocket: $ws';
+  }
+
+  @override
+  String remoteTestFailed(String error) {
+    return 'Connection failed: $error';
+  }
+
+  @override
+  String get aboutRpcInfo => 'Current RPC';
+
+  @override
+  String get aboutRpcSecretHint =>
+      'RPC token (for extensions / remote clients on this machine):';
+
+  @override
+  String get taskShare => 'Copy share text';
+
+  @override
+  String get aria2GlobalOptionsTitle => 'aria2 global options';
+
+  @override
+  String get aria2GlobalOptionsSubtitle => 'Read-only list from running aria2';
+
+  @override
+  String get copyRpcConfigTitle => 'Copy RPC config for extension';
+
+  @override
+  String get copyRpcConfigSubtitle =>
+      'JSON for Chrome extension options (after local aria2 has started once)';
+
+  @override
+  String get copyRpcConfigDone => 'RPC config copied to clipboard';
+
+  @override
+  String get copyRpcConfigUnavailable =>
+      'Start local aria2 once to generate rpc.secret';
+
+  @override
+  String get taskActionPause => 'Pause';
+
+  @override
+  String get taskActionResume => 'Resume';
+
+  @override
+  String get taskActionForcePause => 'Force pause';
+
+  @override
+  String get settingsWebRemoteOnly => 'Web builds only support Remote RPC.';
+
+  @override
+  String get connectionStatusTitle => 'Current connection';
+
+  @override
+  String get connectionStatusLoading => 'Connecting…';
+
+  @override
+  String get connectionStatusOffline => 'Not connected';
+
+  @override
+  String connectionStatusWs(String status) {
+    return 'WebSocket notifications: $status';
+  }
+
+  @override
+  String get desktopShortcutRefresh => 'Refresh task list';
+
+  @override
+  String get desktopShortcutSettings => 'Open settings';
+
+  @override
+  String get pasteAndAdd => 'Paste and add';
+
+  @override
+  String snackAddedCount(int count) {
+    return 'Added $count task(s)';
+  }
+
+  @override
+  String get copyTaskUris => 'Copy all URIs';
+
+  @override
+  String get settingsDangerZone => 'Advanced / danger zone';
+
+  @override
+  String get shutdownAria2 => 'Shut down aria2';
+
+  @override
+  String get shutdownAria2Title => 'Shut down aria2?';
+
+  @override
+  String get shutdownAria2Message =>
+      'Gracefully stops the aria2 daemon. Active downloads will stop. You can reconnect later.';
+
+  @override
+  String get shutdownAria2Confirm => 'Shut down';
+
+  @override
+  String get shutdownAria2Done => 'aria2 shut down';
+
+  @override
+  String get resetSettings => 'Reset to defaults';
+
+  @override
+  String get resetSettingsTitle => 'Reset settings?';
+
+  @override
+  String get resetSettingsMessage =>
+      'Clears all app settings (task history file is kept). aria2 will reconnect.';
+
+  @override
+  String get resetSettingsConfirm => 'Reset';
+
+  @override
+  String get resetSettingsDone => 'Settings reset';
+
+  @override
+  String get copyAddTaskLink => 'Copy in-app add link';
+
+  @override
+  String get taskContextViewDetail => 'View details';
+
+  @override
+  String get desktopShortcutAdd => 'New download task';
+
+  @override
+  String get aboutDesktopShortcuts => 'Keyboard shortcuts (desktop)';
+
+  @override
+  String get globalOptionsSearchHint => 'Search options…';
+
+  @override
+  String get copyDeepLinkExampleTitle => 'Copy example add-task link';
+
+  @override
+  String get copyDeepLinkExampleSubtitle =>
+      'In-app path like /add?uri=… — see docs/DEEPLINKS.md';
+
+  @override
+  String get copyDeepLinkExampleDone => 'Example deep link copied';
+
+  @override
+  String get rpcErrorConnection =>
+      'Cannot reach aria2 RPC. Check that aria2 is running and Settings → RPC address is correct.';
+
+  @override
+  String get rpcErrorUnauthorized =>
+      'RPC rejected the request. Check the token / secret in Settings.';
+
+  @override
+  String rpcErrorGeneric(String error) {
+    return 'Request failed: $error';
+  }
+
+  @override
+  String get copyRpcEndpoint => 'Copy RPC URL';
+
+  @override
+  String get batchExportHistory => 'Export history (JSON)';
+
+  @override
+  String get batchExportHistoryDone => 'Task history copied to clipboard';
+
+  @override
+  String get batchClearStoppedResults => 'Clear stopped list (keep files)';
+
+  @override
+  String get pasteAndQueue => 'Paste and queue';
+
+  @override
+  String get batchImportHistory => 'Import history from clipboard';
+
+  @override
+  String historyImportDone(int count) {
+    return 'Imported $count history record(s)';
+  }
+
+  @override
+  String historyImportFailed(String error) {
+    return 'History import failed: $error';
+  }
+
+  @override
+  String get copyGlobalOptions => 'Copy all options';
+
+  @override
+  String get copyGlobalOptionsDone => 'Global options copied to clipboard';
+
+  @override
+  String get aboutBrowserExtension => 'Browser extension';
+
+  @override
+  String get aboutBrowserExtensionHint =>
+      'See extensions/README.md in the repository';
+
+  @override
+  String get aria2LogSearchHint => 'Search log lines…';
+
+  @override
+  String get aria2LogNoMatch => 'No log lines match your search.';
+}

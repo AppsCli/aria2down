@@ -1,0 +1,3 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- aria2_native is a pure FFI plugin; it has no Java/Kotlin code. -->
+</manifest>

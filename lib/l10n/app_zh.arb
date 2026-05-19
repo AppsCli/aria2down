@@ -1,0 +1,420 @@
+{
+  "@@locale": "zh",
+  "appTitle": "aria2down",
+  "navTasks": "任务",
+  "navAdd": "新建",
+  "navSettings": "设置",
+  "loadingAria2": "正在启动 aria2…",
+  "loadingRemoteAria2": "正在连接远程 aria2…",
+  "loadingSettings": "正在加载设置…",
+  "settingsTitle": "设置",
+  "appearance": "外观",
+  "theme": "主题",
+  "themeSystem": "跟随系统",
+  "themeLight": "浅色",
+  "themeDark": "深色",
+  "language": "语言",
+  "langSystem": "跟随系统",
+  "langEnglish": "English",
+  "langChinese": "简体中文",
+  "downloadDirectory": "默认下载目录",
+  "downloadDirectoryPick": "选择文件夹",
+  "downloadDirectoryClear": "使用系统默认",
+  "aria2BinaryPath": "aria2c 路径（可选）",
+  "aria2BinaryHint": "留空则从 PATH 查找",
+  "save": "保存",
+  "restartAria2Hint": "修改路径后 aria2 将自动重启以生效。",
+  "tasksTitle": "任务",
+  "tabActive": "进行中",
+  "tabWaiting": "等待",
+  "tabStopped": "已停止",
+  "tabHistory": "历史",
+  "emptyHistory": "暂无本地历史记录",
+  "searchTasks": "搜索任务",
+  "searchTasksHint": "按名称或 GID 过滤",
+  "refreshTasks": "刷新",
+  "historyClearTitle": "清空历史",
+  "historyClearMessage": "将删除本机保存的已结束任务记录，不影响 aria2 当前队列。",
+  "historyClearConfirm": "清空",
+  "mobilePathSheetTitle": "保存路径",
+  "mobilePathCopied": "路径已复制到剪贴板",
+  "copyPath": "复制路径",
+  "snackCopied": "已复制",
+  "copyValue": "复制",
+  "taskDetailPieceProgress": "分块完成度",
+  "taskDetailOverallProgress": "总体进度",
+  "speedGlobal": "↓ {down}  ↑ {up}  活动 {active}  等待 {waiting}",
+  "@speedGlobal": {
+    "placeholders": {
+      "down": {"type": "String"},
+      "up": {"type": "String"},
+      "active": {"type": "int"},
+      "waiting": {"type": "int"}
+    }
+  },
+  "speedGlobalExtended": "↓ {down}  ↑ {up}  活动 {active}  等待 {waiting}  已停止 {stopped}",
+  "@speedGlobalExtended": {
+    "placeholders": {
+      "down": {"type": "String"},
+      "up": {"type": "String"},
+      "active": {"type": "int"},
+      "waiting": {"type": "int"},
+      "stopped": {"type": "int"}
+    }
+  },
+  "speedGlobalExtended": "↓ {down}  ↑ {up}  活动 {active}  等待 {waiting}  已停止 {stopped}",
+  "@speedGlobalExtended": {
+    "placeholders": {
+      "down": {"type": "String"},
+      "up": {"type": "String"},
+      "active": {"type": "int"},
+      "waiting": {"type": "int"},
+      "stopped": {"type": "int"}
+    }
+  },
+  "aria2Version": "aria2 {version}",
+  "@aria2Version": {
+    "placeholders": {
+      "version": {"type": "String"}
+    }
+  },
+  "wsConnected": "WebSocket 通知已连接",
+  "wsPolling": "WebSocket 不可用，使用定时刷新",
+  "emptyActive": "暂无进行中的任务",
+  "emptyWaiting": "暂无等待中的任务",
+  "emptyStopped": "暂无已停止任务",
+  "hintUrls": "输入 HTTP(S) / FTP / 磁力 链接，多个可用空格或换行分隔",
+  "addButton": "添加",
+  "snackAdded": "已添加下载任务",
+  "snackAddFailed": "添加失败：{error}",
+  "@snackAddFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "snackInvalidUrl": "未识别到有效下载链接",
+  "snackSaved": "设置已保存",
+  "advancedOptions": "高级选项…",
+  "userAgent": "User-Agent",
+  "headersHint": "HTTP 头，每行一条：Name: Value",
+  "cookie": "Cookie 值（可选，将作为 Cookie: 头发送）",
+  "speedLimitHint": "单任务限速（aria2 max-download-limit），如 2M、500K",
+  "pickTorrent": "选择 .torrent",
+  "pickMetalink": "选择 Metalink（.metalink / .meta4）",
+  "retry": "重试",
+  "openFolder": "打开目录",
+  "openFolderWebCopied": "已将保存路径复制到剪贴板（浏览器无法打开本机目录；路径为 aria2 服务端视角）。",
+  "openFolderFailed": "无法打开文件夹",
+  "openFolderMobileDirOnly": "移动设备无法在系统文件管理器中仅打开目录；请等待文件下载完成后通过「打开」已存在的文件进入。",
+  "openFileFailed": "无法打开文件（路径无效、无可用应用或权限不足）。",
+  "snackRetryQueued": "已重新加入下载队列",
+  "snackNothingToRetry": "该任务没有可重试的链接",
+  "torrentNote": "种子 / Metalink 仅通过本机 RPC 传给 aria2。",
+  "dialogCancel": "取消",
+  "torrentSelectDialogTitle": "选择要下载的文件",
+  "torrentSelectDialogConfirm": "添加",
+  "about": "关于",
+  "aboutDesc": "基于 aria2 的跨平台下载客户端。",
+  "appVersionLabel": "版本 {version}",
+  "@appVersionLabel": {
+    "placeholders": {
+      "version": {"type": "String"}
+    }
+  },
+  "folderPickerUnavailable": "当前平台不支持文件夹选择，请手动输入路径（后续版本）。",
+  "taskDetailTitle": "任务详情",
+  "taskDetailLoadFailed": "加载失败：{error}",
+  "@taskDetailLoadFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "taskDetailTabOverview": "概览",
+  "taskDetailTabFiles": "文件",
+  "taskDetailTabTorrent": "BT",
+  "taskDetailFieldGid": "GID",
+  "taskDetailFieldStatus": "状态",
+  "taskDetailFieldDir": "目录",
+  "taskDetailFieldTotal": "总大小",
+  "taskDetailFieldCompleted": "已完成",
+  "taskDetailFieldUploadLength": "已上传",
+  "taskDetailFieldDownloadSpeed": "下载速度",
+  "taskDetailFieldUploadSpeed": "上传速度",
+  "taskDetailFieldConnections": "连接数",
+  "taskDetailFieldPieces": "分块",
+  "taskDetailFieldBitfield": "分块位图（hex）",
+  "taskDetailPieceSummary": "{count} 块 × {pieceSize}",
+  "@taskDetailPieceSummary": {
+    "placeholders": {
+      "count": {"type": "String"},
+      "pieceSize": {"type": "String"}
+    }
+  },
+  "taskDetailFieldError": "错误",
+  "taskDetailNoFiles": "无文件项",
+  "taskDetailFileProgress": "{done} / {total}",
+  "@taskDetailFileProgress": {
+    "placeholders": {
+      "done": {"type": "String"},
+      "total": {"type": "String"}
+    }
+  },
+  "taskDetailFileProgressSelected": "{done} / {total} · selected={selected}",
+  "@taskDetailFileProgressSelected": {
+    "placeholders": {
+      "done": {"type": "String"},
+      "total": {"type": "String"},
+      "selected": {"type": "String"}
+    }
+  },
+  "taskDetailNotTorrent": "此任务不是 BitTorrent 下载。",
+  "taskDetailTorrentName": "种子名称",
+  "taskDetailTorrentMode": "模式",
+  "taskDetailAnnounceList": "Tracker / announce",
+  "taskDetailAnnounceTier": "第 {tier} 组",
+  "@taskDetailAnnounceTier": {
+    "placeholders": {
+      "tier": {"type": "int"}
+    }
+  },
+  "taskDetailBtMetricsTitle": "传输与连接",
+  "taskDetailFieldInfoHash": "InfoHash",
+  "taskDetailFieldNumSeeders": "Tracker 汇报种子数",
+  "taskDetailFieldLocalSeeder": "本机为做种端",
+  "taskDetailFieldBtConnections": "当前连接数",
+  "taskDetailTrackerRpcNote": "aria2 JSON-RPC 不提供各 Tracker 的单独状态；以下为任务级字段。",
+  "taskDetailBtRpcOptionsTitle": "BitTorrent 选项（getOption）",
+  "taskDetailBtRpcOptionsNote": "以下为当前任务在 aria2 中的生效值。",
+  "taskDetailOptionEnableDht": "DHT（IPv4）",
+  "taskDetailOptionEnableDht6": "DHT（IPv6）",
+  "taskDetailOptionBtEnableLpd": "本地 peer 发现（LPD）",
+  "taskDetailBoolYes": "是",
+  "taskDetailBoolNo": "否",
+  "taskDetailNoAnnounces": "无 announce 列表",
+  "taskDetailPeersTitle": "Peers（{count}）",
+  "@taskDetailPeersTitle": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "taskDetailPeersEmpty": "暂无 peer 数据（可能尚未连接或任务已结束）。",
+  "taskDetailPeerDown": "下行",
+  "taskDetailPeerUp": "上行",
+  "taskDetailSelectFilesHint": "勾选要下载的文件后点击下方按钮应用到 aria2（等待/暂停/进行中任务）。",
+  "taskDetailApplyFileSelection": "应用文件选择",
+  "taskDetailFileSelectionApplyFailed": "应用失败：{error}",
+  "@taskDetailFileSelectionApplyFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "taskDetailNeedOneFileSelected": "请至少保留一个文件为选中状态。",
+  "taskDetailFileSelectionSaved": "文件选择已应用。",
+  "settingsConnection": "连接",
+  "connectionLocal": "本机 aria2",
+  "connectionRemote": "远程 RPC",
+  "settingsEngine": "本机引擎",
+  "engineLibrary": "内嵌库（libaria2）",
+  "engineSubprocess": "aria2c 子进程",
+  "engineLibraryDesc": "通过 Dart FFI 在进程内运行 aria2。内存更省、支持 iOS、无需附带额外二进制。",
+  "engineSubprocessDesc": "启动随包发布的 aria2c 可执行文件，适合作为内嵌库初始化失败时的兜底。",
+  "engineFallbackToSubprocess": "失败时自动回退到子进程",
+  "engineFallbackToSubprocessDesc": "内嵌引擎启动失败时，自动改用 aria2c 子进程重试。",
+  "engineUnavailableBanner": "当前构建未链接内嵌引擎，已回退到子进程。",
+  "engineInitFailed": "内嵌引擎启动失败：{error}",
+  "@engineInitFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "engineCurrent": "当前引擎：{engine}",
+  "@engineCurrent": {
+    "placeholders": {
+      "engine": {"type": "String"}
+    }
+  },
+  "engineLibraryShort": "内嵌库",
+  "engineSubprocessShort": "子进程",
+  "engineRemoteShort": "远程",
+  "remoteRpcEndpoint": "RPC 地址",
+  "remoteRpcEndpointHint": "例如 127.0.0.1:6800 或 http://nas:6800/jsonrpc",
+  "remoteRpcSecret": "RPC 密钥（token）",
+  "remoteModeHint": "远程模式不会启动本机子进程；请确保对方 aria2 已开启 RPC 且密钥一致。",
+  "settingsDownloadTuning": "下载参数（写入本机 aria2.conf）",
+  "settingsOptionalHint": "留空使用 aria2 默认",
+  "maxConcurrentDownloads": "最大同时下载数",
+  "maxConnectionPerServer": "单服务器最大连接数",
+  "globalDownloadLimit": "全局下载限速",
+  "globalUploadLimit": "全局上传限速",
+  "settingsTuningLocalOnly": "以下参数仅在「本机 aria2」模式下写入配置文件。",
+  "settingsDesktop": "桌面行为",
+  "closeToTray": "关闭窗口时最小化到托盘",
+  "closeToTrayDesc": "关闭按钮隐藏主窗口；在托盘菜单选择「退出」才会结束应用。",
+  "minimizeToTray": "最小化到托盘",
+  "minimizeToTrayDesc": "最小化时隐藏主窗口（否则为普通最小化）。",
+  "launchAtStartup": "开机自启",
+  "launchAtStartupDesc": "登录系统时自动启动 aria2down（需平台权限）。",
+  "settingsBackup": "备份与恢复",
+  "settingsExport": "导出设置",
+  "settingsImport": "导入设置",
+  "settingsExportCopied": "设置 JSON 已复制到剪贴板",
+  "settingsExportSaved": "设置已保存到 {path}",
+  "@settingsExportSaved": {
+    "placeholders": {
+      "path": {"type": "String"}
+    }
+  },
+  "settingsImportApplied": "已载入设置，请点击「保存」或继续编辑后保存。",
+  "settingsImportFailed": "导入失败：{error}",
+  "@settingsImportFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "trayShowWindow": "显示主窗口",
+  "trayQuit": "退出",
+  "trayToolTip": "aria2down — 点击显示窗口",
+  "tasksBatchMenu": "批量操作",
+  "batchPauseAll": "全部暂停",
+  "batchForcePauseAll": "强制全部暂停",
+  "batchExportTasks": "导出任务快照",
+  "batchExportTasksDone": "任务快照已复制到剪贴板",
+  "batchUnpauseAll": "全部继续",
+  "settingsDiagnostics": "诊断",
+  "aria2LogTitle": "aria2 日志",
+  "aria2LogSubtitle": "查看本机 aria2 日志文件末尾",
+  "aria2LogEmpty": "日志文件为空或尚未生成。",
+  "batchPurgeStopped": "清除已停止记录",
+  "snackBatchDone": "批量操作已完成",
+  "pasteFromClipboard": "从剪贴板粘贴",
+  "clipboardEmpty": "剪贴板为空",
+  "applyRuntimeLimits": "立即应用到运行中的 aria2",
+  "applyRuntimeLimitsHint": "无需重启即可调整全局限速与并发（本机/远程均可用）。",
+  "applyRuntimeLimitsDone": "运行中选项已更新",
+  "applyRuntimeLimitsEmpty": "请先填写至少一项限速或并发参数",
+  "aboutTitle": "关于 aria2down",
+  "aboutOpenDetail": "版本、许可证与项目链接",
+  "aboutPoweredBy": "下载引擎",
+  "aboutLicense": "许可证",
+  "aboutLicenseBody": "本项目基于 GPLv2+ 发布，与 aria2 许可证兼容。",
+  "aboutLicenseLink": "GNU GPLv2 全文",
+  "platformHintMessage": "本设备建议连接远程 aria2（NAS / 本机已运行的 aria2 RPC），在设置中切换为「远程 RPC」并填写地址。",
+  "platformHintOpenSettings": "打开设置",
+  "platformHintDismiss": "不再提示",
+  "daemonErrorTitle": "无法连接 aria2",
+  "daemonErrorBinaryNotFound": "未找到 aria2c。请安装 aria2、在设置中指定路径，或将预编译二进制放入 assets；也可改用远程 RPC。",
+  "daemonErrorWebLocal": "浏览器无法启动本机 aria2。请在设置中使用「远程 RPC」连接已开启 RPC 的 aria2 服务。",
+  "daemonErrorRetry": "重试连接",
+  "daemonErrorSwitchRemote": "切换到远程 RPC",
+  "welcomeRemoteTitle": "欢迎使用 aria2down",
+  "welcomeRemoteBody": "在本设备上请连接已在运行的 aria2（NAS、电脑或服务器）。打开「设置」→「远程 RPC」，填写地址与 Token。",
+  "snackAllDuplicates": "这些链接已在队列中",
+  "snackAddedWithSkipped": "已添加 {added} 个，跳过 {skipped} 个重复",
+  "@snackAddedWithSkipped": {
+    "placeholders": {
+      "added": {"type": "int"},
+      "skipped": {"type": "int"}
+    }
+  },
+  "batchRemoveStopped": "删除全部已停止任务",
+  "delete": "删除",
+  "swipeDeleteTitle": "删除任务？",
+  "swipeDeleteMessage": "将从 aria2 队列中移除该任务（除非配置了删除时删文件，否则磁盘文件保留）。",
+  "remoteTestConnection": "测试连接",
+  "remoteTestOk": "已连接 — aria2 {version}，WebSocket：{ws}",
+  "@remoteTestOk": {
+    "placeholders": {
+      "version": {"type": "String"},
+      "ws": {"type": "String"}
+    }
+  },
+  "remoteTestFailed": "连接失败：{error}",
+  "@remoteTestFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "aboutRpcInfo": "当前 RPC",
+  "aboutRpcSecretHint": "RPC Token（供本机扩展/远程客户端使用）：",
+  "taskShare": "复制分享文本",
+  "aria2GlobalOptionsTitle": "aria2 全局选项",
+  "aria2GlobalOptionsSubtitle": "查看运行中 aria2 的全局配置（只读）",
+  "copyRpcConfigTitle": "复制扩展用 RPC 配置",
+  "copyRpcConfigSubtitle": "供 Chrome 扩展选项页粘贴（需曾启动过本机 aria2）",
+  "copyRpcConfigDone": "RPC 配置已复制到剪贴板",
+  "copyRpcConfigUnavailable": "请先启动一次本机 aria2 以生成 rpc.secret",
+  "taskActionPause": "暂停",
+  "taskActionResume": "继续",
+  "taskActionForcePause": "强制暂停",
+  "settingsWebRemoteOnly": "Web 端仅支持远程 RPC 模式。",
+  "connectionStatusTitle": "当前连接",
+  "connectionStatusLoading": "正在连接…",
+  "connectionStatusOffline": "未连接",
+  "connectionStatusWs": "WebSocket 通知：{status}",
+  "@connectionStatusWs": {
+    "placeholders": {
+      "status": {"type": "String"}
+    }
+  },
+  "desktopShortcutRefresh": "刷新任务列表",
+  "desktopShortcutSettings": "打开设置",
+  "pasteAndAdd": "粘贴并添加",
+  "snackAddedCount": "已添加 {count} 个任务",
+  "@snackAddedCount": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "copyTaskUris": "复制全部链接",
+  "settingsDangerZone": "高级 / 危险操作",
+  "shutdownAria2": "关闭 aria2 进程",
+  "shutdownAria2Title": "关闭 aria2？",
+  "shutdownAria2Message": "将优雅关闭 aria2 守护进程；进行中的任务会停止。应用可稍后重新连接。",
+  "shutdownAria2Confirm": "关闭",
+  "shutdownAria2Done": "aria2 已关闭",
+  "resetSettings": "恢复默认设置",
+  "resetSettingsTitle": "恢复默认设置？",
+  "resetSettingsMessage": "将清除所有应用设置（不含任务历史文件）。aria2 将重新连接。",
+  "resetSettingsConfirm": "恢复",
+  "resetSettingsDone": "已恢复默认设置",
+  "copyAddTaskLink": "复制应用内添加链接",
+  "taskContextViewDetail": "查看详情",
+  "desktopShortcutAdd": "新建下载任务",
+  "aboutDesktopShortcuts": "键盘快捷键（桌面）",
+  "globalOptionsSearchHint": "搜索选项…",
+  "copyDeepLinkExampleTitle": "复制示例添加链接",
+  "copyDeepLinkExampleSubtitle": "应用内路径如 /add?uri=…，详见 docs/DEEPLINKS.md",
+  "copyDeepLinkExampleDone": "已复制示例深链",
+  "rpcErrorConnection": "无法连接 aria2 RPC。请确认 aria2 已运行，并检查设置中的 RPC 地址。",
+  "rpcErrorUnauthorized": "RPC 拒绝了请求。请检查设置中的 Token / 密钥是否正确。",
+  "rpcErrorGeneric": "请求失败：{error}",
+  "@rpcErrorGeneric": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "copyRpcEndpoint": "复制 RPC 地址",
+  "batchExportHistory": "导出历史（JSON）",
+  "batchExportHistoryDone": "任务历史已复制到剪贴板",
+  "batchClearStoppedResults": "清除已停止记录（保留文件）",
+  "pasteAndQueue": "粘贴并入队",
+  "batchImportHistory": "从剪贴板导入历史",
+  "historyImportDone": "已导入 {count} 条历史记录",
+  "@historyImportDone": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "historyImportFailed": "历史导入失败：{error}",
+  "@historyImportFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "copyGlobalOptions": "复制全部选项",
+  "copyGlobalOptionsDone": "全局选项已复制到剪贴板",
+  "aboutBrowserExtension": "浏览器扩展",
+  "aboutBrowserExtensionHint": "见仓库 extensions/README.md",
+  "aria2LogSearchHint": "搜索日志行…",
+  "aria2LogNoMatch": "没有匹配的日志行。"
+}

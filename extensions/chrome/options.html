@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>aria2down extension</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 32rem;
+        margin: 2rem auto;
+        padding: 0 1rem;
+      }
+      label {
+        display: block;
+        margin-top: 1rem;
+        font-weight: 600;
+      }
+      input {
+        width: 100%;
+        margin-top: 0.25rem;
+        padding: 0.5rem;
+        box-sizing: border-box;
+      }
+      button {
+        margin-top: 1.25rem;
+        padding: 0.5rem 1rem;
+      }
+      #status {
+        margin-top: 1rem;
+        color: #0a0;
+      }
+      p.hint {
+        color: #555;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>aria2down</h1>
+    <p class="hint">
+      Right-click a link → <strong>Send to aria2</strong>. RPC must allow browser
+      origin (or use a local proxy). Match the token in aria2down settings /
+      <code>aria2.conf</code>.
+    </p>
+    <label>
+      JSON-RPC URL
+      <input id="rpcUrl" type="url" placeholder="http://127.0.0.1:6800/jsonrpc" />
+    </label>
+    <label>
+      RPC secret (optional)
+      <input id="secret" type="password" autocomplete="off" />
+    </label>
+    <button id="save" type="button">Save</button>
+    <button id="test" type="button">Test connection</button>
+    <button id="importConfig" type="button">Import from clipboard (JSON)</button>
+    <p class="hint">
+      Paste the JSON copied from aria2down Settings → <strong>Copy RPC config for
+      extension</strong>.
+    </p>
+    <p id="status"></p>
+    <script src="options.js"></script>
+  </body>
+</html>

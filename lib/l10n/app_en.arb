@@ -1,0 +1,410 @@
+{
+  "@@locale": "en",
+  "appTitle": "aria2down",
+  "navTasks": "Tasks",
+  "navAdd": "New",
+  "navSettings": "Settings",
+  "loadingAria2": "Starting aria2…",
+  "loadingRemoteAria2": "Connecting to remote aria2…",
+  "loadingSettings": "Loading settings…",
+  "settingsTitle": "Settings",
+  "appearance": "Appearance",
+  "theme": "Theme",
+  "themeSystem": "System",
+  "themeLight": "Light",
+  "themeDark": "Dark",
+  "language": "Language",
+  "langSystem": "System default",
+  "langEnglish": "English",
+  "langChinese": "Chinese",
+  "downloadDirectory": "Default download folder",
+  "downloadDirectoryPick": "Choose folder",
+  "downloadDirectoryClear": "Use system default",
+  "aria2BinaryPath": "aria2c path (optional)",
+  "aria2BinaryHint": "Leave empty to search PATH",
+  "save": "Save",
+  "restartAria2Hint": "aria2 will restart to apply path changes.",
+  "tasksTitle": "Tasks",
+  "tabActive": "Active",
+  "tabWaiting": "Waiting",
+  "tabStopped": "Stopped",
+  "tabHistory": "History",
+  "emptyHistory": "No local history yet",
+  "searchTasks": "Search tasks",
+  "searchTasksHint": "Filter by name or GID",
+  "refreshTasks": "Refresh",
+  "historyClearTitle": "Clear history",
+  "historyClearMessage": "Removes saved finished tasks on this device. Does not affect the current aria2 queue.",
+  "historyClearConfirm": "Clear",
+  "mobilePathSheetTitle": "Save path",
+  "mobilePathCopied": "Path copied to clipboard",
+  "copyPath": "Copy path",
+  "snackCopied": "Copied",
+  "copyValue": "Copy",
+  "taskDetailPieceProgress": "Piece completion",
+  "taskDetailOverallProgress": "Overall progress",
+  "speedGlobal": "↓ {down}  ↑ {up}  active {active}  waiting {waiting}",
+  "@speedGlobal": {
+    "placeholders": {
+      "down": {"type": "String"},
+      "up": {"type": "String"},
+      "active": {"type": "int"},
+      "waiting": {"type": "int"}
+    }
+  },
+  "speedGlobalExtended": "↓ {down}  ↑ {up}  active {active}  waiting {waiting}  stopped {stopped}",
+  "@speedGlobalExtended": {
+    "placeholders": {
+      "down": {"type": "String"},
+      "up": {"type": "String"},
+      "active": {"type": "int"},
+      "waiting": {"type": "int"},
+      "stopped": {"type": "int"}
+    }
+  },
+  "aria2Version": "aria2 {version}",
+  "@aria2Version": {
+    "placeholders": {
+      "version": {"type": "String"}
+    }
+  },
+  "wsConnected": "WebSocket notifications connected",
+  "wsPolling": "WebSocket unavailable; using periodic refresh",
+  "emptyActive": "No active downloads",
+  "emptyWaiting": "No waiting tasks",
+  "emptyStopped": "No stopped tasks",
+  "hintUrls": "HTTP(S) / FTP / magnet links; separate with space or newline",
+  "addButton": "Add",
+  "snackAdded": "Download added",
+  "snackAddFailed": "Failed: {error}",
+  "@snackAddFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "snackInvalidUrl": "No valid URLs in input",
+  "snackSaved": "Settings saved",
+  "advancedOptions": "Advanced…",
+  "userAgent": "User-Agent",
+  "headersHint": "HTTP headers, one per line: Name: Value",
+  "cookie": "Cookie header value (optional)",
+  "speedLimitHint": "Speed limit (aria2 max-download-limit), e.g. 2M or 500K",
+  "pickTorrent": "Pick .torrent",
+  "pickMetalink": "Pick Metalink (.metalink / .meta4)",
+  "retry": "Retry",
+  "openFolder": "Open folder",
+  "openFolderWebCopied": "Copied the save path to the clipboard (browsers cannot open a local folder; path is from the aria2 server).",
+  "openFolderFailed": "Could not open folder",
+  "openFolderMobileDirOnly": "On mobile, opening only a folder in the file manager isn’t supported. Wait until a file exists, then open that file from the list.",
+  "openFileFailed": "Could not open the file (invalid path, no app, or permission denied).",
+  "snackRetryQueued": "Download re-queued",
+  "snackNothingToRetry": "No links to retry for this task",
+  "torrentNote": "Torrent/Metalink is sent to the local aria2 over RPC only.",
+  "dialogCancel": "Cancel",
+  "torrentSelectDialogTitle": "Choose files to download",
+  "torrentSelectDialogConfirm": "Add",
+  "about": "About",
+  "aboutDesc": "Cross-platform download client powered by aria2.",
+  "appVersionLabel": "Version {version}",
+  "@appVersionLabel": {
+    "placeholders": {
+      "version": {"type": "String"}
+    }
+  },
+  "folderPickerUnavailable": "Folder picker is not available on this platform.",
+  "taskDetailTitle": "Task details",
+  "taskDetailLoadFailed": "Load failed: {error}",
+  "@taskDetailLoadFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "taskDetailTabOverview": "Overview",
+  "taskDetailTabFiles": "Files",
+  "taskDetailTabTorrent": "Torrent",
+  "taskDetailFieldGid": "GID",
+  "taskDetailFieldStatus": "Status",
+  "taskDetailFieldDir": "Directory",
+  "taskDetailFieldTotal": "Total size",
+  "taskDetailFieldCompleted": "Completed",
+  "taskDetailFieldUploadLength": "Uploaded",
+  "taskDetailFieldDownloadSpeed": "Download speed",
+  "taskDetailFieldUploadSpeed": "Upload speed",
+  "taskDetailFieldConnections": "Connections",
+  "taskDetailFieldPieces": "Pieces",
+  "taskDetailFieldBitfield": "Piece bitfield (hex)",
+  "taskDetailPieceSummary": "{count} × {pieceSize}",
+  "@taskDetailPieceSummary": {
+    "placeholders": {
+      "count": {"type": "String"},
+      "pieceSize": {"type": "String"}
+    }
+  },
+  "taskDetailFieldError": "Error",
+  "taskDetailNoFiles": "No file entries",
+  "taskDetailFileProgress": "{done} / {total}",
+  "@taskDetailFileProgress": {
+    "placeholders": {
+      "done": {"type": "String"},
+      "total": {"type": "String"}
+    }
+  },
+  "taskDetailFileProgressSelected": "{done} / {total} · selected={selected}",
+  "@taskDetailFileProgressSelected": {
+    "placeholders": {
+      "done": {"type": "String"},
+      "total": {"type": "String"},
+      "selected": {"type": "String"}
+    }
+  },
+  "taskDetailNotTorrent": "This download is not a BitTorrent task.",
+  "taskDetailTorrentName": "Torrent name",
+  "taskDetailTorrentMode": "Mode",
+  "taskDetailAnnounceList": "Trackers / announce",
+  "taskDetailAnnounceTier": "Tier {tier}",
+  "@taskDetailAnnounceTier": {
+    "placeholders": {
+      "tier": {"type": "int"}
+    }
+  },
+  "taskDetailBtMetricsTitle": "Transfer & connectivity",
+  "taskDetailFieldInfoHash": "Info hash",
+  "taskDetailFieldNumSeeders": "Seeders (tracker-reported)",
+  "taskDetailFieldLocalSeeder": "This client is seeding",
+  "taskDetailFieldBtConnections": "Connections",
+  "taskDetailTrackerRpcNote": "aria2 JSON-RPC does not expose per-tracker health; values below are task-level.",
+  "taskDetailBtRpcOptionsTitle": "BitTorrent options (getOption)",
+  "taskDetailBtRpcOptionsNote": "Effective values for this download in aria2.",
+  "taskDetailOptionEnableDht": "DHT (IPv4)",
+  "taskDetailOptionEnableDht6": "DHT (IPv6)",
+  "taskDetailOptionBtEnableLpd": "Local peer discovery (LPD)",
+  "taskDetailBoolYes": "Yes",
+  "taskDetailBoolNo": "No",
+  "taskDetailNoAnnounces": "No announce list",
+  "taskDetailPeersTitle": "Peers ({count})",
+  "@taskDetailPeersTitle": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "taskDetailPeersEmpty": "No peer data (not connected yet or task finished).",
+  "taskDetailPeerDown": "Down",
+  "taskDetailPeerUp": "Up",
+  "taskDetailSelectFilesHint": "Choose files to download, then apply to aria2 (waiting / paused / active tasks).",
+  "taskDetailApplyFileSelection": "Apply file selection",
+  "taskDetailFileSelectionApplyFailed": "Apply failed: {error}",
+  "@taskDetailFileSelectionApplyFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "taskDetailNeedOneFileSelected": "Keep at least one file selected.",
+  "taskDetailFileSelectionSaved": "File selection applied.",
+  "settingsConnection": "Connection",
+  "connectionLocal": "Local aria2",
+  "connectionRemote": "Remote RPC",
+  "settingsEngine": "Local engine",
+  "engineLibrary": "Embedded library (libaria2)",
+  "engineSubprocess": "aria2c subprocess",
+  "engineLibraryDesc": "Runs aria2 in-process via FFI. Lower memory, works on iOS, no extra binary required.",
+  "engineSubprocessDesc": "Launches the bundled aria2c executable. Useful as a fallback when libaria2 fails to initialize.",
+  "engineFallbackToSubprocess": "Auto-fallback to subprocess",
+  "engineFallbackToSubprocessDesc": "When the embedded engine cannot start, retry with the aria2c subprocess.",
+  "engineUnavailableBanner": "Embedded engine unavailable in this build — falling back to subprocess.",
+  "engineInitFailed": "Embedded engine failed to start: {error}",
+  "@engineInitFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "engineCurrent": "Active engine: {engine}",
+  "@engineCurrent": {
+    "placeholders": {
+      "engine": {"type": "String"}
+    }
+  },
+  "engineLibraryShort": "library",
+  "engineSubprocessShort": "subprocess",
+  "engineRemoteShort": "remote",
+  "remoteRpcEndpoint": "RPC endpoint",
+  "remoteRpcEndpointHint": "e.g. 127.0.0.1:6800 or http://nas:6800/jsonrpc",
+  "remoteRpcSecret": "RPC secret (token)",
+  "remoteModeHint": "Remote mode does not start a local process. Ensure aria2 RPC is enabled and the secret matches.",
+  "settingsDownloadTuning": "Download tuning (local aria2.conf)",
+  "settingsOptionalHint": "Leave empty for aria2 default",
+  "maxConcurrentDownloads": "Max concurrent downloads",
+  "maxConnectionPerServer": "Max connections per server",
+  "globalDownloadLimit": "Global download limit",
+  "globalUploadLimit": "Global upload limit",
+  "settingsTuningLocalOnly": "These options apply only in local aria2 mode (written to aria2.conf).",
+  "settingsDesktop": "Desktop",
+  "closeToTray": "Close to system tray",
+  "closeToTrayDesc": "The close button hides the window; use Quit in the tray menu to exit.",
+  "minimizeToTray": "Minimize to tray",
+  "minimizeToTrayDesc": "Hide the window when minimized (otherwise normal minimize).",
+  "launchAtStartup": "Launch at login",
+  "launchAtStartupDesc": "Start aria2down when you sign in (OS permissions may apply).",
+  "settingsBackup": "Backup & restore",
+  "settingsExport": "Export settings",
+  "settingsImport": "Import settings",
+  "settingsExportCopied": "Settings JSON copied to clipboard",
+  "settingsExportSaved": "Settings saved to {path}",
+  "@settingsExportSaved": {
+    "placeholders": {
+      "path": {"type": "String"}
+    }
+  },
+  "settingsImportApplied": "Settings loaded. Tap Save to persist, or edit first.",
+  "settingsImportFailed": "Import failed: {error}",
+  "@settingsImportFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "trayShowWindow": "Show window",
+  "trayQuit": "Quit",
+  "trayToolTip": "aria2down — click to show",
+  "tasksBatchMenu": "Batch actions",
+  "batchPauseAll": "Pause all",
+  "batchForcePauseAll": "Force pause all",
+  "batchExportTasks": "Export task snapshot",
+  "batchExportTasksDone": "Task snapshot copied to clipboard",
+  "batchUnpauseAll": "Resume all",
+  "settingsDiagnostics": "Diagnostics",
+  "aria2LogTitle": "aria2 log",
+  "aria2LogSubtitle": "Last lines from the local aria2 log file",
+  "aria2LogEmpty": "Log file is empty or not created yet.",
+  "batchPurgeStopped": "Purge stopped results",
+  "snackBatchDone": "Batch action completed",
+  "pasteFromClipboard": "Paste from clipboard",
+  "clipboardEmpty": "Clipboard is empty",
+  "applyRuntimeLimits": "Apply to running aria2",
+  "applyRuntimeLimitsHint": "Updates global limits without restart (local or remote).",
+  "applyRuntimeLimitsDone": "Running options updated",
+  "applyRuntimeLimitsEmpty": "Enter at least one limit or concurrency value",
+  "aboutTitle": "About aria2down",
+  "aboutOpenDetail": "Version, license, and links",
+  "aboutPoweredBy": "Download engine",
+  "aboutLicense": "License",
+  "aboutLicenseBody": "Released under GPLv2+, compatible with aria2.",
+  "aboutLicenseLink": "GNU GPLv2 full text",
+  "platformHintMessage": "On this device, connect to a remote aria2 RPC (NAS or a machine already running aria2). Switch to Remote RPC in Settings.",
+  "platformHintOpenSettings": "Open settings",
+  "platformHintDismiss": "Don't show again",
+  "daemonErrorTitle": "Cannot connect to aria2",
+  "daemonErrorBinaryNotFound": "aria2c not found. Install aria2, set a path in Settings, bundle a binary in assets, or use Remote RPC.",
+  "daemonErrorWebLocal": "The browser cannot start a local aria2 process. Use Remote RPC in Settings.",
+  "daemonErrorRetry": "Retry",
+  "daemonErrorSwitchRemote": "Switch to remote RPC",
+  "welcomeRemoteTitle": "Welcome to aria2down",
+  "welcomeRemoteBody": "On this device, connect to an aria2 instance that is already running (NAS, PC, or server). Open Settings → Remote RPC and enter the address and token.",
+  "snackAllDuplicates": "These links are already in the queue",
+  "snackAddedWithSkipped": "Added {added}; skipped {skipped} duplicate(s)",
+  "@snackAddedWithSkipped": {
+    "placeholders": {
+      "added": {"type": "int"},
+      "skipped": {"type": "int"}
+    }
+  },
+  "batchRemoveStopped": "Remove all stopped tasks",
+  "delete": "Delete",
+  "swipeDeleteTitle": "Remove task?",
+  "swipeDeleteMessage": "This removes the task from aria2 (files on disk are kept unless you enabled delete-on-remove).",
+  "remoteTestConnection": "Test connection",
+  "remoteTestOk": "Connected — aria2 {version}, WebSocket: {ws}",
+  "@remoteTestOk": {
+    "placeholders": {
+      "version": {"type": "String"},
+      "ws": {"type": "String"}
+    }
+  },
+  "remoteTestFailed": "Connection failed: {error}",
+  "@remoteTestFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "aboutRpcInfo": "Current RPC",
+  "aboutRpcSecretHint": "RPC token (for extensions / remote clients on this machine):",
+  "taskShare": "Copy share text",
+  "aria2GlobalOptionsTitle": "aria2 global options",
+  "aria2GlobalOptionsSubtitle": "Read-only list from running aria2",
+  "copyRpcConfigTitle": "Copy RPC config for extension",
+  "copyRpcConfigSubtitle": "JSON for Chrome extension options (after local aria2 has started once)",
+  "copyRpcConfigDone": "RPC config copied to clipboard",
+  "copyRpcConfigUnavailable": "Start local aria2 once to generate rpc.secret",
+  "taskActionPause": "Pause",
+  "taskActionResume": "Resume",
+  "taskActionForcePause": "Force pause",
+  "settingsWebRemoteOnly": "Web builds only support Remote RPC.",
+  "connectionStatusTitle": "Current connection",
+  "connectionStatusLoading": "Connecting…",
+  "connectionStatusOffline": "Not connected",
+  "connectionStatusWs": "WebSocket notifications: {status}",
+  "@connectionStatusWs": {
+    "placeholders": {
+      "status": {"type": "String"}
+    }
+  },
+  "desktopShortcutRefresh": "Refresh task list",
+  "desktopShortcutSettings": "Open settings",
+  "pasteAndAdd": "Paste and add",
+  "snackAddedCount": "Added {count} task(s)",
+  "@snackAddedCount": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "copyTaskUris": "Copy all URIs",
+  "settingsDangerZone": "Advanced / danger zone",
+  "shutdownAria2": "Shut down aria2",
+  "shutdownAria2Title": "Shut down aria2?",
+  "shutdownAria2Message": "Gracefully stops the aria2 daemon. Active downloads will stop. You can reconnect later.",
+  "shutdownAria2Confirm": "Shut down",
+  "shutdownAria2Done": "aria2 shut down",
+  "resetSettings": "Reset to defaults",
+  "resetSettingsTitle": "Reset settings?",
+  "resetSettingsMessage": "Clears all app settings (task history file is kept). aria2 will reconnect.",
+  "resetSettingsConfirm": "Reset",
+  "resetSettingsDone": "Settings reset",
+  "copyAddTaskLink": "Copy in-app add link",
+  "taskContextViewDetail": "View details",
+  "desktopShortcutAdd": "New download task",
+  "aboutDesktopShortcuts": "Keyboard shortcuts (desktop)",
+  "globalOptionsSearchHint": "Search options…",
+  "copyDeepLinkExampleTitle": "Copy example add-task link",
+  "copyDeepLinkExampleSubtitle": "In-app path like /add?uri=… — see docs/DEEPLINKS.md",
+  "copyDeepLinkExampleDone": "Example deep link copied",
+  "rpcErrorConnection": "Cannot reach aria2 RPC. Check that aria2 is running and Settings → RPC address is correct.",
+  "rpcErrorUnauthorized": "RPC rejected the request. Check the token / secret in Settings.",
+  "rpcErrorGeneric": "Request failed: {error}",
+  "@rpcErrorGeneric": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "copyRpcEndpoint": "Copy RPC URL",
+  "batchExportHistory": "Export history (JSON)",
+  "batchExportHistoryDone": "Task history copied to clipboard",
+  "batchClearStoppedResults": "Clear stopped list (keep files)",
+  "pasteAndQueue": "Paste and queue",
+  "batchImportHistory": "Import history from clipboard",
+  "historyImportDone": "Imported {count} history record(s)",
+  "@historyImportDone": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "historyImportFailed": "History import failed: {error}",
+  "@historyImportFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "copyGlobalOptions": "Copy all options",
+  "copyGlobalOptionsDone": "Global options copied to clipboard",
+  "aboutBrowserExtension": "Browser extension",
+  "aboutBrowserExtensionHint": "See extensions/README.md in the repository",
+  "aria2LogSearchHint": "Search log lines…",
+  "aria2LogNoMatch": "No log lines match your search."
+}

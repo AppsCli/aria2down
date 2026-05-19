@@ -1,0 +1,35 @@
+name: aria2_native
+description: >-
+  Dart FFI bindings to a thin C shim around libaria2. Used by aria2down to run
+  the aria2 download engine in-process on every native platform (macOS, Linux,
+  Windows, Android, iOS).
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.8.1
+  flutter: '>=3.22.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  ffi: ^2.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        ffiPlugin: true
+      ios:
+        ffiPlugin: true
+      linux:
+        ffiPlugin: true
+      macos:
+        ffiPlugin: true
+      windows:
+        ffiPlugin: true
