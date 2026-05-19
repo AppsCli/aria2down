@@ -1,0 +1,78 @@
+PODS:
+  - aria2_native (0.1.0):
+    - FlutterMacOS
+  - file_picker (0.0.1):
+    - FlutterMacOS
+  - file_selector_macos (0.0.1):
+    - FlutterMacOS
+  - FlutterMacOS (1.0.0)
+  - open_file_mac (1.0.3):
+    - FlutterMacOS
+  - path_provider_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
+  - screen_retriever_macos (0.0.1):
+    - FlutterMacOS
+  - shared_preferences_foundation (0.0.1):
+    - Flutter
+    - FlutterMacOS
+  - tray_manager (0.0.1):
+    - FlutterMacOS
+  - url_launcher_macos (0.0.1):
+    - FlutterMacOS
+  - window_manager (0.5.0):
+    - FlutterMacOS
+
+DEPENDENCIES:
+  - aria2_native (from `Flutter/ephemeral/.symlinks/plugins/aria2_native/macos`)
+  - file_picker (from `Flutter/ephemeral/.symlinks/plugins/file_picker/macos`)
+  - file_selector_macos (from `Flutter/ephemeral/.symlinks/plugins/file_selector_macos/macos`)
+  - FlutterMacOS (from `Flutter/ephemeral`)
+  - open_file_mac (from `Flutter/ephemeral/.symlinks/plugins/open_file_mac/macos`)
+  - path_provider_foundation (from `Flutter/ephemeral/.symlinks/plugins/path_provider_foundation/darwin`)
+  - screen_retriever_macos (from `Flutter/ephemeral/.symlinks/plugins/screen_retriever_macos/macos`)
+  - shared_preferences_foundation (from `Flutter/ephemeral/.symlinks/plugins/shared_preferences_foundation/darwin`)
+  - tray_manager (from `Flutter/ephemeral/.symlinks/plugins/tray_manager/macos`)
+  - url_launcher_macos (from `Flutter/ephemeral/.symlinks/plugins/url_launcher_macos/macos`)
+  - window_manager (from `Flutter/ephemeral/.symlinks/plugins/window_manager/macos`)
+
+EXTERNAL SOURCES:
+  aria2_native:
+    :path: Flutter/ephemeral/.symlinks/plugins/aria2_native/macos
+  file_picker:
+    :path: Flutter/ephemeral/.symlinks/plugins/file_picker/macos
+  file_selector_macos:
+    :path: Flutter/ephemeral/.symlinks/plugins/file_selector_macos/macos
+  FlutterMacOS:
+    :path: Flutter/ephemeral
+  open_file_mac:
+    :path: Flutter/ephemeral/.symlinks/plugins/open_file_mac/macos
+  path_provider_foundation:
+    :path: Flutter/ephemeral/.symlinks/plugins/path_provider_foundation/darwin
+  screen_retriever_macos:
+    :path: Flutter/ephemeral/.symlinks/plugins/screen_retriever_macos/macos
+  shared_preferences_foundation:
+    :path: Flutter/ephemeral/.symlinks/plugins/shared_preferences_foundation/darwin
+  tray_manager:
+    :path: Flutter/ephemeral/.symlinks/plugins/tray_manager/macos
+  url_launcher_macos:
+    :path: Flutter/ephemeral/.symlinks/plugins/url_launcher_macos/macos
+  window_manager:
+    :path: Flutter/ephemeral/.symlinks/plugins/window_manager/macos
+
+SPEC CHECKSUMS:
+  aria2_native: d6af2564d6a39d6d39b569e99476d82c739fffb1
+  file_picker: 7584aae6fa07a041af2b36a2655122d42f578c1a
+  file_selector_macos: 6280b52b459ae6c590af5d78fc35c7267a3c4b31
+  FlutterMacOS: 8f6f14fa908a6fb3fba0cd85dbd81ec4b251fb24
+  open_file_mac: 76f06c8597551249bdb5e8fd8827a98eae0f4585
+  path_provider_foundation: 080d55be775b7414fd5a5ef3ac137b97b097e564
+  screen_retriever_macos: 452e51764a9e1cdb74b3c541238795849f21557f
+  shared_preferences_foundation: 9e1978ff2562383bd5676f64ec4e9aa8fa06a6f7
+  tray_manager: a104b5c81b578d83f3c3d0f40a997c8b10810166
+  url_launcher_macos: 0fba8ddabfc33ce0a9afe7c5fef5aab3d8d2d673
+  window_manager: b729e31d38fb04905235df9ea896128991cad99e
+
+PODFILE CHECKSUM: 346bfb2deb41d4a6ebd6f6799f92188bde2d246f
+
+COCOAPODS: 1.16.2

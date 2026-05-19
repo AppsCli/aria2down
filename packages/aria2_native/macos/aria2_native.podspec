@@ -21,11 +21,17 @@ Pod::Spec.new do |s|
 
   if has_libaria2
     full_dir = File.expand_path(prebuilt_root, __dir__)
-    deps     = Dir.glob("#{full_dir}/deps/*.a")
+    deps     = Dir.glob("#{full_dir}/deps/*.a").sort
+    # macOS 上 aria2 使用 AppleTLS (SecureTransport)，不依赖 OpenSSL。
+    # 系统库：expat（XML 解析）、zlib（gzip/inflate/deflate）、iconv；
+    # 框架：Security/CFNetwork（AppleTLS）、CoreFoundation/SystemConfiguration。
+    sys_libs = '-lexpat -lz -liconv ' \
+               '-framework Security -framework CFNetwork ' \
+               '-framework CoreFoundation -framework SystemConfiguration'
     s.xcconfig = {
       'GCC_PREPROCESSOR_DEFINITIONS' => 'ARIA2_FFI_WITH_LIBARIA2=1',
       'HEADER_SEARCH_PATHS'           => "#{full_dir}/include",
-      'OTHER_LDFLAGS'                 => "#{full_dir}/libaria2.a " + deps.join(' '),
+      'OTHER_LDFLAGS'                 => "#{full_dir}/libaria2.a " + deps.join(' ') + " #{sys_libs}",
       'CLANG_CXX_LANGUAGE_STANDARD'   => 'gnu++14',
     }
   else

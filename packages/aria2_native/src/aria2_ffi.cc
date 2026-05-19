@@ -486,6 +486,62 @@ void files_to_writer(JsonWriter &w, aria2::Session *s, aria2::A2Gid gid) {
   aria2::deleteDownloadHandle(dh);
 }
 
+/* Base64 decoder for torrent / metalink payloads. Lives in the file-scope
+ * anonymous namespace (not inside `extern "C"`), so clang does not flag the
+ * std::string return type with -Wreturn-type-c-linkage. */
+bool b64_decode(const char *in, std::string &out) {
+  static const int table[256] = {
+    /*  0 */ -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    /* 16 */ -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
+    /* 32 */ -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,62,-1,-1,-1,63,
+    /* 48 */ 52,53,54,55,56,57,58,59,60,61,-1,-1,-1, 0,-1,-1,
+    /* 64 */ -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,
+    /* 80 */ 15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1,
+    /* 96 */ -1,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,
+    /*112 */ 41,42,43,44,45,46,47,48,49,50,51,-1,-1,-1,-1,-1,
+  };
+  if (!in) return false;
+  size_t len = std::strlen(in);
+  out.clear();
+  out.reserve((len * 3) / 4);
+  int val = 0, valb = -8;
+  for (size_t i = 0; i < len; ++i) {
+    unsigned char c = static_cast<unsigned char>(in[i]);
+    if (c == '=' || c == '\r' || c == '\n' || c == ' ' || c == '\t') continue;
+    int x = c < 128 ? table[c] : -1;
+    if (x < 0) return false;
+    val = (val << 6) | x;
+    valb += 6;
+    if (valb >= 0) {
+      out.push_back(static_cast<char>((val >> valb) & 0xFF));
+      valb -= 8;
+    }
+  }
+  return true;
+}
+
+/* Write `data` to a temporary file and return its path. Caller owns it and
+ * is responsible for cleanup; on error returns empty string. */
+std::string write_temp(const std::string &data, const char *suffix) {
+  const char *tmpdir = std::getenv("TMPDIR");
+  if (!tmpdir) tmpdir = std::getenv("TEMP");
+  if (!tmpdir) tmpdir = "/tmp";
+  static std::atomic<uint64_t> counter{0};
+  std::ostringstream path;
+  path << tmpdir << "/aria2_ffi_" << ARIA2_FFI_GETPID()
+       << '_' << counter.fetch_add(1) << '_' << suffix;
+  std::string p = path.str();
+  FILE *f = std::fopen(p.c_str(), "wb");
+  if (!f) return std::string();
+  if (std::fwrite(data.data(), 1, data.size(), f) != data.size()) {
+    std::fclose(f);
+    std::remove(p.c_str());
+    return std::string();
+  }
+  std::fclose(f);
+  return p;
+}
+
 #endif /* ARIA2_FFI_WITH_LIBARIA2 */
 
 } /* anonymous namespace */
@@ -670,66 +726,6 @@ int aria2_ffi_add_uri(int64_t handle, const char *uris_json,
   return ARIA2_FFI_ERR_UNAVAILABLE;
 #endif
 }
-
-#ifdef ARIA2_FFI_WITH_LIBARIA2
-namespace {
-
-/* Base64 decoder for torrent / metalink payloads. */
-bool b64_decode(const char *in, std::string &out) {
-  static const int table[256] = {
-    /*  0 */ -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-    /* 16 */ -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,
-    /* 32 */ -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,62,-1,-1,-1,63,
-    /* 48 */ 52,53,54,55,56,57,58,59,60,61,-1,-1,-1, 0,-1,-1,
-    /* 64 */ -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,
-    /* 80 */ 15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1,
-    /* 96 */ -1,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,
-    /*112 */ 41,42,43,44,45,46,47,48,49,50,51,-1,-1,-1,-1,-1,
-  };
-  if (!in) return false;
-  size_t len = std::strlen(in);
-  out.clear();
-  out.reserve((len * 3) / 4);
-  int val = 0, valb = -8;
-  for (size_t i = 0; i < len; ++i) {
-    unsigned char c = static_cast<unsigned char>(in[i]);
-    if (c == '=' || c == '\r' || c == '\n' || c == ' ' || c == '\t') continue;
-    int x = c < 128 ? table[c] : -1;
-    if (x < 0) return false;
-    val = (val << 6) | x;
-    valb += 6;
-    if (valb >= 0) {
-      out.push_back(static_cast<char>((val >> valb) & 0xFF));
-      valb -= 8;
-    }
-  }
-  return true;
-}
-
-/* Write `data` to a temporary file and return its path. Caller owns it and
- * is responsible for cleanup; on error returns empty string. */
-std::string write_temp(const std::string &data, const char *suffix) {
-  const char *tmpdir = std::getenv("TMPDIR");
-  if (!tmpdir) tmpdir = std::getenv("TEMP");
-  if (!tmpdir) tmpdir = "/tmp";
-  static std::atomic<uint64_t> counter{0};
-  std::ostringstream path;
-  path << tmpdir << "/aria2_ffi_" << ARIA2_FFI_GETPID()
-       << '_' << counter.fetch_add(1) << '_' << suffix;
-  std::string p = path.str();
-  FILE *f = std::fopen(p.c_str(), "wb");
-  if (!f) return std::string();
-  if (std::fwrite(data.data(), 1, data.size(), f) != data.size()) {
-    std::fclose(f);
-    std::remove(p.c_str());
-    return std::string();
-  }
-  std::fclose(f);
-  return p;
-}
-
-} /* anonymous namespace */
-#endif /* ARIA2_FFI_WITH_LIBARIA2 */
 
 int aria2_ffi_add_torrent(int64_t handle, const char *torrent_b64,
                           const char *uris_json, const char *options_json,

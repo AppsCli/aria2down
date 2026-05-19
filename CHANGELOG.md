@@ -10,6 +10,24 @@
 - **iOS 现在原生支持本机下载**（取代此前的仅远程模式），通过 `packages/aria2_native` 静态链接 libaria2。
 - **设置 → 本机引擎**：新增 **内嵌库 / aria2c 子进程** 切换；默认开启「失败时自动回退到子进程」，确保旧版构建/未带 libaria2 产物的环境仍可工作。
 
+### 修复
+
+- **macOS 启动闪退（io.flutter.ui 线程 SIGSEGV in `SSL_CTX_set_default_verify_paths`）**：根因是
+  静态链接的 OpenSSL 3.x 在 macOS 下 `OSSL_PROVIDER_load("legacy")` 走 DSO 路径加载失败，
+  aria2 `Platform::setUp` 抛异常但 `initialized_` 标志已置位，二次 `libraryInit` 假成功，
+  随后 `SSL_CTX_new` 返回 NULL，aria2 的 `OpenSSLTLSContext` 未守护 NULL 直接 `addSystemTrustedCACerts`。
+  改用 **AppleTLS (SecureTransport)** 作为 macOS 上的 TLS 后端，彻底摆脱 OpenSSL 静态 provider 困境。
+- **macOS libaria2 链接**：podspec 现链 `Security/CFNetwork/CoreFoundation/SystemConfiguration` framework
+  及系统 `expat/zlib/iconv`；不再依赖 OpenSSL 静态库。
+- **FFI shim 编译**：将 `b64_decode` / `write_temp` 等返回 `std::string` 的辅助函数移出 `extern "C"` 块，避免 clang 在 macOS 下因 `-Wreturn-type-c-linkage` 报错。
+- **`scripts/build_libaria2_macos.sh`**：
+  - 切换到 `--without-openssl --with-appletls`，依赖只剩 c-ares / sqlite3；
+  - 修复 `build_for_arch` 子函数的 `$(...)` 返回值被 configure/make stdout 污染的隐性 bug
+    （所有构建日志显式重定向到 stderr）；
+  - 容忍新版 macOS libtool 在 `make libaria2.la` 后处理时偶发的 "File name too long"
+    （只要 `src/.libs/libaria2.a` 实际产出即视为成功）；
+  - 输出前清理旧的 OpenSSL 残留产物 `deps/libssl.a`、`deps/libcrypto.a`。
+
 ### 新增
 
 - **FFI 插件**：`packages/aria2_native` 提供 libaria2 的 C ABI shim + Dart 绑定 + `Aria2NativeSession`（事件流 / 选项 / 查询）。
