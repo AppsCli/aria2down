@@ -32,8 +32,19 @@ flutter build apk --release
 ## UI（P4-04）
 
 - 已使用 `SafeArea` 包裹主导航内容。
-- 窄屏沿用底栏；任务列表支持搜索、历史 Tab 与下拉刷新。
+- 窄屏沿用底栏；任务列表支持搜索、历史 Tab、下拉刷新、滑动操作与添加 FAB。
+- 设置页底部固定保存按钮；首次安装默认本机内嵌引擎（可改远程 RPC）。
+- 应用进入后台时任务轮询间隔延长至 60s，恢复前台时立即刷新。
 
 ## 权限
 
-在 `AndroidManifest.xml` 中按需声明网络、存储（若支持用户自选下载目录）等权限；具体以发版前清单为准。
+| 权限 / 配置 | 用途 |
+| --- | --- |
+| `INTERNET` | 下载与远程 RPC |
+| `ACCESS_NETWORK_STATE` | 网络状态 |
+| `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_DATA_SYNC` | 本机引擎前台保活（Android 14+ 类型） |
+| `POST_NOTIFICATIONS` | Android 13+ 前台服务通知；`MainActivity` 在启动保活前请求 |
+| `WAKE_LOCK` | 保活辅助 |
+| `res/xml/network_security_config.xml` | 允许用户配置的 HTTP RPC（如局域网 NAS） |
+| 存储 | 默认使用应用私有目录；自选目录走 SAF / `file_selector`，无需 `READ/WRITE_EXTERNAL_STORAGE` |
+| Torrent / Metalink | `file_picker` 使用 `withData: true`，避免 Android 上 `path == null` |

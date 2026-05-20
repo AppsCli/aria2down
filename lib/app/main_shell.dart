@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/platform_hints.dart';
 import '../features/home/platform_hint_banner.dart';
 import '../features/home/welcome_remote_dialog.dart';
 import '../providers/task_badge_provider.dart';
@@ -48,7 +49,7 @@ class _MainShellState extends ConsumerState<MainShell> {
   Widget build(BuildContext context) {
     final navigationShell = widget.navigationShell;
     final l10n = AppLocalizations.of(context)!;
-    final wide = MediaQuery.sizeOf(context).width >= 840;
+    final wide = isWideLayout(context);
 
     if (wide) {
       return Scaffold(
@@ -89,6 +90,9 @@ class _MainShellState extends ConsumerState<MainShell> {
       body: SafeArea(child: PlatformHintBanner(child: navigationShell)),
       bottomNavigationBar: NavigationBar(
         selectedIndex: navigationShell.currentIndex,
+        labelBehavior: isMobilePlatform
+            ? NavigationDestinationLabelBehavior.onlyShowSelected
+            : NavigationDestinationLabelBehavior.alwaysShow,
         onDestinationSelected: _goBranch,
         destinations: [
           NavigationDestination(

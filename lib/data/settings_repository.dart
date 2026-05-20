@@ -1,6 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../core/platform_hints.dart';
 import 'app_settings.dart';
 
 /// SharedPreferences 键名。
@@ -113,15 +113,14 @@ final class SettingsRepository {
     await _setOrRemove(p, SettingsKeys.globalUploadLimit, s.globalUploadLimit);
   }
 
-  /// 首次安装：移动/Web 默认远程 RPC，桌面默认本机子进程。
+  /// 首次安装：Web 默认远程 RPC；移动设备默认本机内嵌库；桌面默认本机。
   static ConnectionMode resolveConnectionMode({
     required bool hasStoredMode,
     String? storedRaw,
   }) {
     if (!hasStoredMode) {
-      return shouldPreferRemoteAria2
-          ? ConnectionMode.remote
-          : ConnectionMode.local;
+      if (kIsWeb) return ConnectionMode.remote;
+      return ConnectionMode.local;
     }
     return readConnectionMode(storedRaw);
   }

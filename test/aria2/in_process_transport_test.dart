@@ -68,72 +68,76 @@ class _FakeSession implements Aria2NativeSession {
   @override
   Future<void> close({bool force = false}) async {}
   @override
-  bool runOnce() => false;
+  Future<bool> runOnce() async => false;
   @override
-  String addUri(
+  Future<String> addUri(
     List<String> uris, {
     Map<String, String> options = const {},
     int position = -1,
   }) => throw UnimplementedError();
   @override
-  String addTorrent(
+  Future<String> addTorrent(
     String torrentBase64, {
     List<String> webSeedUris = const [],
     Map<String, String> options = const {},
     int position = -1,
   }) => throw UnimplementedError();
   @override
-  List<String> addMetalink(
+  Future<List<String>> addMetalink(
     String metalinkBase64, {
     Map<String, String> options = const {},
     int position = -1,
   }) => throw UnimplementedError();
   @override
-  void remove(String gid, {bool force = false}) {}
+  Future<void> remove(String gid, {bool force = false}) async {}
   @override
-  void pause(String gid, {bool force = false}) {}
+  Future<void> pause(String gid, {bool force = false}) async {}
   @override
-  void pauseAll({bool force = false}) {}
+  Future<void> pauseAll({bool force = false}) async {}
   @override
-  void unpause(String gid) {}
+  Future<void> unpause(String gid) async {}
   @override
-  void unpauseAll() {}
+  Future<void> unpauseAll() async {}
   @override
-  void purgeDownloadResult() {}
+  Future<void> purgeDownloadResult() async {}
   @override
-  void removeDownloadResult(String gid) {}
+  Future<void> removeDownloadResult(String gid) async {}
   @override
-  void changeOption(String gid, Map<String, String> options) {}
+  Future<void> changeOption(String gid, Map<String, String> options) async {}
   @override
-  void changeGlobalOption(Map<String, String> options) {}
+  Future<void> changeGlobalOption(Map<String, String> options) async {}
   @override
-  Map<String, dynamic> tellStatus(String gid, {List<String>? keys}) => {};
+  Future<Map<String, dynamic>> tellStatus(
+    String gid, {
+    List<String>? keys,
+  }) async => const {};
   @override
-  List<Map<String, dynamic>> tellActive({List<String>? keys}) => const [];
+  Future<List<Map<String, dynamic>>> tellActive({List<String>? keys}) async =>
+      const [];
   @override
-  List<Map<String, dynamic>> tellWaiting({
+  Future<List<Map<String, dynamic>>> tellWaiting({
     int offset = 0,
     int num = 1000,
     List<String>? keys,
-  }) => const [];
+  }) async => const [];
   @override
-  List<Map<String, dynamic>> tellStopped({
+  Future<List<Map<String, dynamic>>> tellStopped({
     int offset = 0,
     int num = 1000,
     List<String>? keys,
-  }) => const [];
+  }) async => const [];
   @override
-  List<Map<String, dynamic>> getFiles(String gid) => const [];
+  Future<List<Map<String, dynamic>>> getFiles(String gid) async => const [];
   @override
-  List<Map<String, dynamic>> getPeers(String gid) => const [];
+  Future<List<Map<String, dynamic>>> getPeers(String gid) async => const [];
   @override
-  Map<String, dynamic> getGlobalStat() => const {};
+  Future<Map<String, dynamic>> getGlobalStat() async => const {};
   @override
-  Map<String, dynamic> getGlobalOption() => const {};
+  Future<Map<String, dynamic>> getGlobalOption() async => const {};
   @override
-  Map<String, dynamic> getOption(String gid) => const {};
+  Future<Map<String, dynamic>> getOption(String gid) async => const {};
   @override
-  Map<String, dynamic> getVersion() => const {'version': 'fake'};
+  Future<Map<String, dynamic>> getVersion() async => const {'version': 'fake'};
 }
 
 // Avoid unused-import lint when fake doesn't actually reach FFI.

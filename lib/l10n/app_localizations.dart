@@ -1293,7 +1293,7 @@ abstract class AppLocalizations {
   /// No description provided for @platformHintMessage.
   ///
   /// In en, this message translates to:
-  /// **'On this device, connect to a remote aria2 RPC (NAS or a machine already running aria2). Switch to Remote RPC in Settings.'**
+  /// **'Downloads may pause when the app is in the background. Keep the app open or use Remote RPC to a server that stays online.'**
   String get platformHintMessage;
 
   /// No description provided for @platformHintOpenSettings.
@@ -1307,6 +1307,30 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Don\'t show again'**
   String get platformHintDismiss;
+
+  /// No description provided for @mobileSettingsCardTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Mobile tips'**
+  String get mobileSettingsCardTitle;
+
+  /// No description provided for @mobileSettingsCardBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Local mode downloads inside the app. Switch to Remote RPC to use aria2 on a NAS or PC. Background downloads may pause when the screen is locked.'**
+  String get mobileSettingsCardBody;
+
+  /// No description provided for @welcomeUseLocal.
+  ///
+  /// In en, this message translates to:
+  /// **'Use local download'**
+  String get welcomeUseLocal;
+
+  /// No description provided for @welcomeSetupRemote.
+  ///
+  /// In en, this message translates to:
+  /// **'Set up remote RPC'**
+  String get welcomeSetupRemote;
 
   /// No description provided for @daemonErrorTitle.
   ///
@@ -1347,7 +1371,7 @@ abstract class AppLocalizations {
   /// No description provided for @welcomeRemoteBody.
   ///
   /// In en, this message translates to:
-  /// **'On this device, connect to an aria2 instance that is already running (NAS, PC, or server). Open Settings → Remote RPC and enter the address and token.'**
+  /// **'Download on this device with the built-in engine, or connect to aria2 on a NAS or PC via Remote RPC in Settings.'**
   String get welcomeRemoteBody;
 
   /// No description provided for @snackAllDuplicates.

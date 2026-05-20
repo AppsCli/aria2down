@@ -12,6 +12,7 @@ import '../../aria2/client/ws_listener.dart';
 import '../../aria2/daemon/aria2_daemon.dart';
 import '../../core/eta_format.dart';
 import '../../core/format_utils.dart';
+import '../../core/platform_hints.dart';
 import '../../core/reveal_path.dart';
 import '../../core/app_deep_link.dart';
 import '../../core/rpc_error_message.dart';
@@ -22,6 +23,7 @@ import '../../core/uri_utils.dart';
 import '../../core/task_history_recorder.dart';
 import '../../core/task_list_sort.dart';
 import '../../data/models/task_history_entry.dart';
+import '../../providers/app_background_provider.dart';
 import '../../providers/aria2_daemon_provider.dart';
 import '../../core/queue_uris.dart';
 import '../../core/task_history_import.dart';
@@ -60,6 +62,15 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
   Map<String, dynamic>? _version;
   String? _loadError;
   bool _refreshing = false;
+  bool _tickInFlight = false;
+  bool _tickCoalesce = false;
+  bool _tickCoalesceManual = false;
+  Timer? _tickDebounce;
+  final _manualTickWaiters = <Completer<void>>[];
+  int? _activeSig;
+  int? _waitingSig;
+  int? _stoppedSig;
+  int? _globalSig;
 
   @override
   void initState() {
@@ -70,15 +81,6 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
       });
     _scheduleTick();
     _restartPollTimer(wsConnected: false);
-    _searchCtrl.addListener(() {
-      _searchDebounce?.cancel();
-      _searchDebounce = Timer(const Duration(milliseconds: 250), () {
-        if (!mounted) return;
-        final v = _searchCtrl.text;
-        if (v == _searchQuery) return;
-        setState(() => _searchQuery = v);
-      });
-    });
 
     ref.listenManual(taskRefreshSignalProvider, (prev, next) {
       if (prev != next) _scheduleTick(manual: true);
@@ -99,7 +101,7 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
           _wsSub = ws.notifications.listen((n) {
             if (!mounted) return;
             unawaited(_historyRecorder?.onNotification(n));
-            _scheduleTick();
+            _scheduleTick(debounced: true);
           });
         }
       });
@@ -107,7 +109,8 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
   }
 
   void _restartPollTimer({required bool wsConnected}) {
-    final sec = wsConnected ? 30 : 8;
+    final inBackground = ref.read(appInBackgroundProvider);
+    final sec = inBackground && isMobilePlatform ? 60 : (wsConnected ? 30 : 8);
     if (sec == _pollIntervalSec && _timer != null) return;
     _pollIntervalSec = sec;
     _timer?.cancel();
@@ -126,65 +129,129 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
     }).toList();
   }
 
-  Future<void> _scheduleTick({bool manual = false}) async {
-    if (_refreshing && !manual) return;
-    if (manual) {
-      setState(() => _refreshing = true);
+  Future<void> _scheduleTick({bool manual = false, bool debounced = false}) {
+    if (debounced && !manual) {
+      _tickDebounce?.cancel();
+      _tickDebounce = Timer(const Duration(milliseconds: 400), () {
+        _tickDebounce = null;
+        if (mounted) unawaited(_scheduleTick());
+      });
+      return Future<void>.value();
     }
-    scheduleMicrotask(() async {
+    if (_tickInFlight) {
+      _tickCoalesce = true;
+      if (manual) {
+        _tickCoalesceManual = true;
+        final waiter = Completer<void>();
+        _manualTickWaiters.add(waiter);
+        return waiter.future;
+      }
+      return Future<void>.value();
+    }
+    return _runTick(manual: manual);
+  }
+
+  void _completeManualTickWaiters() {
+    for (final waiter in _manualTickWaiters) {
+      if (!waiter.isCompleted) waiter.complete();
+    }
+    _manualTickWaiters.clear();
+  }
+
+  Future<void> _runTick({required bool manual}) async {
+    _tickInFlight = true;
+    if (manual && mounted) setState(() => _refreshing = true);
+    try {
       final async = ref.read(aria2DaemonProvider);
       final d = async.value;
       if (d == null || !mounted) {
         if (manual && mounted) setState(() => _refreshing = false);
         return;
       }
-      try {
-        final fetchVersion = _version == null || manual;
-        final futures = <Future<dynamic>>[
-          d.client.tellActive(keys: kTaskListTellKeys),
-          d.client.tellWaiting(offset: 0, num: 500, keys: kTaskListTellKeys),
-          d.client.tellStopped(offset: 0, num: 50, keys: kTaskListTellKeys),
-          d.client.getGlobalStat(),
-        ];
-        if (fetchVersion) {
-          futures.add(d.client.getVersion());
-        }
-        final results = await Future.wait(futures);
-        final stopped = results[2] as List<Map<String, dynamic>>;
-        await _historyRecorder?.onStoppedList(stopped);
-        if (!mounted) return;
-        final active = List<Map<String, dynamic>>.from(
-          results[0] as List<Map<String, dynamic>>,
-        );
-        final waiting = results[1] as List<Map<String, dynamic>>;
-        final stoppedSorted = List<Map<String, dynamic>>.from(stopped);
-        sortActiveByDownloadSpeed(active);
-        sortStoppedByCompletedTimeDesc(stoppedSorted);
-        final version = fetchVersion
-            ? results[4] as Map<String, dynamic>
-            : _version;
+      final fetchVersion = _version == null || manual;
+      final futures = <Future<dynamic>>[
+        d.client.tellActive(keys: kTaskListTellKeys),
+        d.client.tellWaiting(
+          offset: 0,
+          num: kTaskListTellWaitingMax,
+          keys: kTaskListTellKeys,
+        ),
+        d.client.tellStopped(offset: 0, num: 50, keys: kTaskListTellKeys),
+        d.client.getGlobalStat(),
+      ];
+      if (fetchVersion) {
+        futures.add(d.client.getVersion());
+      }
+      final results = await Future.wait(futures);
+      final stopped = results[2] as List<Map<String, dynamic>>;
+      await _historyRecorder?.onStoppedList(stopped);
+      if (!mounted) return;
+      final active = List<Map<String, dynamic>>.from(
+        results[0] as List<Map<String, dynamic>>,
+      );
+      final waiting = results[1] as List<Map<String, dynamic>>;
+      final stoppedSorted = List<Map<String, dynamic>>.from(stopped);
+      sortActiveByDownloadSpeed(active);
+      sortStoppedByCompletedTimeDesc(stoppedSorted);
+      final version = fetchVersion
+          ? results[4] as Map<String, dynamic>
+          : _version;
+      final newGlobal = GlobalStatView.from(results[3] as GlobalStat);
+
+      final activeSig = _taskListSignature(active);
+      final waitingSig = _taskListSignature(waiting);
+      final stoppedSig = _taskListSignature(stoppedSorted);
+      final globalSig = newGlobal.signature;
+      final unchanged =
+          _loadError == null &&
+          activeSig == _activeSig &&
+          waitingSig == _waitingSig &&
+          stoppedSig == _stoppedSig &&
+          globalSig == _globalSig &&
+          (!fetchVersion || identical(version, _version));
+
+      if (unchanged) {
+        if (manual && mounted) setState(() => _refreshing = false);
+      } else {
         setState(() {
           _loadError = null;
           _active = active;
           _waiting = waiting;
           _stopped = stoppedSorted;
-          _global = GlobalStatView.from(results[3] as GlobalStat);
+          _activeSig = activeSig;
+          _waitingSig = waitingSig;
+          _stoppedSig = stoppedSig;
+          _global = newGlobal;
+          _globalSig = globalSig;
           _version = version;
           if (manual) _refreshing = false;
         });
-        ref.read(taskActiveCountProvider.notifier).state = active.length;
-        if (manual) {
-          ref.invalidate(taskHistoryProvider);
-        }
-      } catch (e) {
-        if (mounted) {
-          setState(() {
-            _loadError = '$e';
-            if (manual) _refreshing = false;
-          });
-        }
       }
-    });
+      final notifier = ref.read(taskActiveCountProvider.notifier);
+      if (notifier.state != active.length) {
+        notifier.state = active.length;
+      }
+      if (manual) {
+        ref.invalidate(taskHistoryProvider);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loadError = '$e';
+          if (manual) _refreshing = false;
+        });
+      }
+    } finally {
+      _tickInFlight = false;
+      if (_tickCoalesce && mounted) {
+        final coalesceManual = _tickCoalesceManual;
+        _tickCoalesce = false;
+        _tickCoalesceManual = false;
+        await _runTick(manual: coalesceManual);
+      } else {
+        _completeManualTickWaiters();
+      }
+    }
   }
 
   Future<void> _retryTask(Map<String, dynamic> task) async {
@@ -433,6 +500,7 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
     _daemonListen?.close();
     unawaited(_wsSub?.cancel());
     _timer?.cancel();
+    _tickDebounce?.cancel();
     _searchDebounce?.cancel();
     _searchCtrl.dispose();
     _tabs.dispose();
@@ -445,7 +513,17 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
     final d = ref.watch(aria2DaemonProvider).value;
     final wsOn = d?.wsNotifier != null;
 
+    final compact = isCompactLayout(context);
+    final mobile = isMobilePlatform;
+
     return Scaffold(
+      floatingActionButton: mobile
+          ? FloatingActionButton(
+              onPressed: () => context.go('/add'),
+              tooltip: l10n.navAdd,
+              child: const Icon(Icons.add),
+            )
+          : null,
       appBar: AppBar(
         title: _searchVisible
             ? TextField(
@@ -460,7 +538,9 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
                   _searchDebounce = Timer(
                     const Duration(milliseconds: 250),
                     () {
-                      if (mounted) setState(() => _searchQuery = v);
+                      if (!mounted) return;
+                      if (v == _searchQuery) return;
+                      setState(() => _searchQuery = v);
                     },
                   );
                 },
@@ -553,16 +633,18 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
               ],
             ],
           ),
-          IconButton(
-            tooltip: l10n.pasteAndQueue,
-            icon: const Icon(Icons.playlist_add_check),
-            onPressed: _pasteAndQueueFromClipboard,
-          ),
-          IconButton(
-            tooltip: l10n.pasteAndAdd,
-            icon: const Icon(Icons.playlist_add),
-            onPressed: _openAddFromClipboard,
-          ),
+          if (!compact) ...[
+            IconButton(
+              tooltip: l10n.pasteAndQueue,
+              icon: const Icon(Icons.playlist_add_check),
+              onPressed: _pasteAndQueueFromClipboard,
+            ),
+            IconButton(
+              tooltip: l10n.pasteAndAdd,
+              icon: const Icon(Icons.playlist_add),
+              onPressed: _openAddFromClipboard,
+            ),
+          ],
           IconButton(
             tooltip: l10n.searchTasks,
             icon: Icon(_searchVisible ? Icons.close : Icons.search),
@@ -635,17 +717,26 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
                     children: [
                       Expanded(
                         child: Text(
-                          l10n.speedGlobalExtended(
-                            _global!.downFmt,
-                            _global!.upFmt,
-                            _global!.numActive,
-                            _global!.numWaiting,
-                            _global!.numStopped,
-                          ),
+                          compact
+                              ? l10n.speedGlobal(
+                                  _global!.downFmt,
+                                  _global!.upFmt,
+                                  _global!.numActive,
+                                  _global!.numWaiting,
+                                )
+                              : l10n.speedGlobalExtended(
+                                  _global!.downFmt,
+                                  _global!.upFmt,
+                                  _global!.numActive,
+                                  _global!.numWaiting,
+                                  _global!.numStopped,
+                                ),
                           style: Theme.of(context).textTheme.bodyMedium,
+                          maxLines: compact ? 2 : null,
+                          overflow: compact ? TextOverflow.ellipsis : null,
                         ),
                       ),
-                      if (_version != null)
+                      if (!compact && _version != null)
                         Text(
                           l10n.aria2Version('${_version!['version'] ?? ''}'),
                           style: Theme.of(context).textTheme.labelSmall,
@@ -721,7 +812,7 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
     String emptyLabel, {
     required bool showRetry,
   }) {
-    final narrow = MediaQuery.sizeOf(context).width < 840;
+    final narrow = !isWideLayout(context);
     return RefreshIndicator(
       onRefresh: () => _scheduleTick(manual: true),
       child: _TaskListView(
@@ -729,13 +820,44 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
         emptyLabel: emptyLabel,
         l10n: AppLocalizations.of(context)!,
         showRetry: showRetry,
-        enableSwipeActions: narrow,
+        enableSwipeActions: narrow || isMobilePlatform,
+        compactTiles: isCompactLayout(context),
         onAddTask: () => context.go('/add'),
         onRetry: _retryTask,
         onOpenFolder: _openFolder,
         onAfterAction: () => _scheduleTick(),
+        onPause: _pauseTask,
+        onUnpause: _unpauseTask,
+        onRemove: _removeTask,
       ),
     );
+  }
+
+  Future<void> _pauseTask(String gid) async {
+    final d = ref.read(aria2DaemonProvider).value;
+    if (d == null) return;
+    try {
+      await d.client.pause(gid);
+      unawaited(_scheduleTick());
+    } catch (_) {}
+  }
+
+  Future<void> _unpauseTask(String gid) async {
+    final d = ref.read(aria2DaemonProvider).value;
+    if (d == null) return;
+    try {
+      await d.client.unpause(gid);
+      unawaited(_scheduleTick());
+    } catch (_) {}
+  }
+
+  Future<void> _removeTask(String gid) async {
+    final d = ref.read(aria2DaemonProvider).value;
+    if (d == null) return;
+    try {
+      await d.client.remove(gid, force: true);
+      unawaited(_scheduleTick());
+    } catch (_) {}
   }
 }
 
@@ -763,6 +885,32 @@ class GlobalStatView {
   final int numActive;
   final int numWaiting;
   final int numStopped;
+
+  /// 用于跨轮 diff 的轻量签名（不含格式化字符串以外的数据）。
+  int get signature =>
+      Object.hash(downFmt, upFmt, numActive, numWaiting, numStopped);
+}
+
+/// 计算任务列表轻量签名，用于跳过无变化的 setState。
+///
+/// 只采样进度/状态字段，BT 大字段不参与计算（列表已不含 `bitfield`）。
+int _taskListSignature(List<Map<String, dynamic>> items) {
+  if (items.isEmpty) return 0;
+  var hash = items.length;
+  for (final t in items) {
+    hash = Object.hash(
+      hash,
+      t['gid'],
+      t['status'],
+      t['totalLength'],
+      t['completedLength'],
+      t['downloadSpeed'],
+      t['uploadSpeed'],
+      t['eta'],
+      t['errorMessage'],
+    );
+  }
+  return hash;
 }
 
 class _TaskListView extends StatelessWidget {
@@ -772,10 +920,14 @@ class _TaskListView extends StatelessWidget {
     required this.l10n,
     required this.showRetry,
     required this.enableSwipeActions,
+    required this.compactTiles,
     required this.onAddTask,
     required this.onRetry,
     required this.onOpenFolder,
     required this.onAfterAction,
+    required this.onPause,
+    required this.onUnpause,
+    required this.onRemove,
   });
 
   final List<Map<String, dynamic>> items;
@@ -783,10 +935,14 @@ class _TaskListView extends StatelessWidget {
   final AppLocalizations l10n;
   final bool showRetry;
   final bool enableSwipeActions;
+  final bool compactTiles;
   final VoidCallback onAddTask;
   final Future<void> Function(Map<String, dynamic> task) onRetry;
   final Future<void> Function(Map<String, dynamic> task) onOpenFolder;
   final VoidCallback onAfterAction;
+  final Future<void> Function(String gid) onPause;
+  final Future<void> Function(String gid) onUnpause;
+  final Future<void> Function(String gid) onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -814,203 +970,203 @@ class _TaskListView extends StatelessWidget {
         ],
       );
     }
+    final colors = Theme.of(context).colorScheme;
     return ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.only(bottom: 24),
       itemCount: items.length,
+      addAutomaticKeepAlives: false,
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (context, i) {
         final t = items[i];
-        final gid = '${t['gid']}';
-        final status = '${t['status'] ?? ''}';
-        final total = int.tryParse('${t['totalLength']}') ?? 0;
-        final done = int.tryParse('${t['completedLength']}') ?? 0;
-        final name = pickTaskName(t);
-        final progress = total > 0 ? done / total : 0.0;
-        final canOpen = resolveRevealPath(t) != null;
-        final canRetry = showRetry && extractUrisFromTask(t).isNotEmpty;
-        final eta = formatEta(t['eta']);
-        final speed = int.tryParse('${t['downloadSpeed']}') ?? 0;
-        final statusLine = [
-          status,
-          if (speed > 0) formatSpeed(speed),
-          if (eta != null) eta,
-        ].join(' · ');
-        final errMsg = t['errorMessage'];
-        final errorText = errMsg is String && errMsg.isNotEmpty ? errMsg : null;
-
-        final tile = ListTile(
-          onTap: () => context.push('/tasks/detail/$gid'),
-          onLongPress: () => showTaskContextSheet(
-            context,
-            task: t,
-            onOpenFolder: canOpen ? () => onOpenFolder(t) : null,
-            onAfterAction: onAfterAction,
-          ),
-          title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '$statusLine\n$gid',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              if (errorText != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    errorText,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-              LinearProgressIndicator(value: progress.clamp(0.0, 1.0)),
-            ],
-          ),
-          trailing: Consumer(
-            builder: (context, ref, _) {
-              return Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (canOpen)
-                    IconButton(
-                      tooltip: l10n.openFolder,
-                      icon: const Icon(Icons.folder_open_outlined),
-                      onPressed: () => onOpenFolder(t),
-                    ),
-                  if (canRetry)
-                    IconButton(
-                      tooltip: l10n.retry,
-                      icon: const Icon(Icons.refresh),
-                      onPressed: () => onRetry(t),
-                    ),
-                  if (!enableSwipeActions &&
-                      (status == 'active' || status == 'waiting'))
-                    IconButton(
-                      icon: const Icon(Icons.pause),
-                      onPressed: () async {
-                        try {
-                          await ref
-                              .read(aria2DaemonProvider)
-                              .value!
-                              .client
-                              .pause(gid);
-                          onAfterAction();
-                        } catch (_) {}
-                      },
-                    ),
-                  if (!enableSwipeActions && status == 'paused')
-                    IconButton(
-                      icon: const Icon(Icons.play_arrow),
-                      onPressed: () async {
-                        try {
-                          await ref
-                              .read(aria2DaemonProvider)
-                              .value!
-                              .client
-                              .unpause(gid);
-                          onAfterAction();
-                        } catch (_) {}
-                      },
-                    ),
-                  if (!enableSwipeActions)
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline),
-                      onPressed: () async {
-                        try {
-                          await ref
-                              .read(aria2DaemonProvider)
-                              .value!
-                              .client
-                              .remove(gid, force: true);
-                          onAfterAction();
-                        } catch (_) {}
-                      },
-                    ),
-                ],
-              );
-            },
-          ),
-        );
-
-        if (!enableSwipeActions) return tile;
-
-        return Consumer(
-          builder: (context, ref, _) {
-            return Dismissible(
-              key: ValueKey(gid),
-              direction: showRetry
-                  ? DismissDirection.endToStart
-                  : DismissDirection.horizontal,
-              background: Container(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                alignment: Alignment.centerLeft,
-                padding: const EdgeInsets.only(left: 20),
-                child: Icon(
-                  status == 'paused' ? Icons.play_arrow : Icons.pause,
-                  color: Theme.of(context).colorScheme.onPrimaryContainer,
-                ),
-              ),
-              secondaryBackground: Container(
-                color: Theme.of(context).colorScheme.errorContainer,
-                alignment: Alignment.centerRight,
-                padding: const EdgeInsets.only(right: 20),
-                child: Icon(
-                  Icons.delete_outline,
-                  color: Theme.of(context).colorScheme.onErrorContainer,
-                ),
-              ),
-              confirmDismiss: (direction) async {
-                if (direction == DismissDirection.startToEnd) {
-                  final d = ref.read(aria2DaemonProvider).value;
-                  if (d == null) return false;
-                  try {
-                    if (status == 'paused') {
-                      await d.client.unpause(gid);
-                    } else if (status == 'active' || status == 'waiting') {
-                      await d.client.pause(gid);
-                    }
-                    onAfterAction();
-                  } catch (_) {}
-                  return false;
-                }
-                final ok = await showDialog<bool>(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: Text(l10n.swipeDeleteTitle),
-                    content: Text(l10n.swipeDeleteMessage),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: Text(l10n.dialogCancel),
-                      ),
-                      FilledButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: Text(l10n.delete),
-                      ),
-                    ],
-                  ),
-                );
-                return ok ?? false;
-              },
-              onDismissed: (_) async {
-                final d = ref.read(aria2DaemonProvider).value;
-                if (d == null) return;
-                try {
-                  await d.client.remove(gid, force: true);
-                  onAfterAction();
-                } catch (_) {}
-              },
-              child: tile,
-            );
-          },
+        return _TaskListTile(
+          key: ValueKey('${t['gid']}'),
+          task: t,
+          l10n: l10n,
+          colors: colors,
+          showRetry: showRetry,
+          enableSwipeActions: enableSwipeActions,
+          compactTiles: compactTiles,
+          onRetry: onRetry,
+          onOpenFolder: onOpenFolder,
+          onAfterAction: onAfterAction,
+          onPause: onPause,
+          onUnpause: onUnpause,
+          onRemove: onRemove,
         );
       },
+    );
+  }
+}
+
+class _TaskListTile extends StatelessWidget {
+  const _TaskListTile({
+    super.key,
+    required this.task,
+    required this.l10n,
+    required this.colors,
+    required this.showRetry,
+    required this.enableSwipeActions,
+    required this.compactTiles,
+    required this.onRetry,
+    required this.onOpenFolder,
+    required this.onAfterAction,
+    required this.onPause,
+    required this.onUnpause,
+    required this.onRemove,
+  });
+
+  final Map<String, dynamic> task;
+  final AppLocalizations l10n;
+  final ColorScheme colors;
+  final bool showRetry;
+  final bool enableSwipeActions;
+  final bool compactTiles;
+  final Future<void> Function(Map<String, dynamic> task) onRetry;
+  final Future<void> Function(Map<String, dynamic> task) onOpenFolder;
+  final VoidCallback onAfterAction;
+  final Future<void> Function(String gid) onPause;
+  final Future<void> Function(String gid) onUnpause;
+  final Future<void> Function(String gid) onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = task;
+    final gid = '${t['gid']}';
+    final status = '${t['status'] ?? ''}';
+    final total = int.tryParse('${t['totalLength']}') ?? 0;
+    final done = int.tryParse('${t['completedLength']}') ?? 0;
+    final name = pickTaskName(t);
+    final progress = total > 0 ? done / total : 0.0;
+    final canOpen = resolveRevealPath(t) != null;
+    final canRetry = showRetry && extractUrisFromTask(t).isNotEmpty;
+    final eta = formatEta(t['eta']);
+    final speed = int.tryParse('${t['downloadSpeed']}') ?? 0;
+    final statusLine = [
+      status,
+      if (speed > 0) formatSpeed(speed),
+      if (eta != null) eta,
+    ].join(' · ');
+    final errMsg = t['errorMessage'];
+    final errorText = errMsg is String && errMsg.isNotEmpty ? errMsg : null;
+
+    final tile = ListTile(
+      onTap: () => context.push('/tasks/detail/$gid'),
+      onLongPress: () => showTaskContextSheet(
+        context,
+        task: t,
+        onOpenFolder: canOpen ? () => onOpenFolder(t) : null,
+        onAfterAction: onAfterAction,
+      ),
+      title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            compactTiles ? statusLine : '$statusLine\n$gid',
+            maxLines: compactTiles ? 1 : 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          if (errorText != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                errorText,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: colors.error, fontSize: 12),
+              ),
+            ),
+          LinearProgressIndicator(value: progress.clamp(0.0, 1.0)),
+        ],
+      ),
+      trailing: enableSwipeActions
+          ? Icon(Icons.chevron_right, color: colors.outline)
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (canOpen)
+                  IconButton(
+                    tooltip: l10n.openFolder,
+                    icon: const Icon(Icons.folder_open_outlined),
+                    onPressed: () => onOpenFolder(t),
+                  ),
+                if (canRetry)
+                  IconButton(
+                    tooltip: l10n.retry,
+                    icon: const Icon(Icons.refresh),
+                    onPressed: () => onRetry(t),
+                  ),
+                if (status == 'active' || status == 'waiting')
+                  IconButton(
+                    icon: const Icon(Icons.pause),
+                    onPressed: () => onPause(gid),
+                  ),
+                if (status == 'paused')
+                  IconButton(
+                    icon: const Icon(Icons.play_arrow),
+                    onPressed: () => onUnpause(gid),
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: () => onRemove(gid),
+                ),
+              ],
+            ),
+    );
+
+    if (!enableSwipeActions) return tile;
+
+    return Dismissible(
+      key: ValueKey('dismiss_$gid'),
+      direction: showRetry
+          ? DismissDirection.endToStart
+          : DismissDirection.horizontal,
+      background: Container(
+        color: colors.primaryContainer,
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 20),
+        child: Icon(
+          status == 'paused' ? Icons.play_arrow : Icons.pause,
+          color: colors.onPrimaryContainer,
+        ),
+      ),
+      secondaryBackground: Container(
+        color: colors.errorContainer,
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        child: Icon(Icons.delete_outline, color: colors.onErrorContainer),
+      ),
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          if (status == 'paused') {
+            await onUnpause(gid);
+          } else if (status == 'active' || status == 'waiting') {
+            await onPause(gid);
+          }
+          return false;
+        }
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text(l10n.swipeDeleteTitle),
+            content: Text(l10n.swipeDeleteMessage),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text(l10n.dialogCancel),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(l10n.delete),
+              ),
+            ],
+          ),
+        );
+        return ok ?? false;
+      },
+      onDismissed: (_) => onRemove(gid),
+      child: tile,
     );
   }
 }

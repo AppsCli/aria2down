@@ -1,4 +1,5 @@
 import 'package:aria2down/l10n/app_localizations.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -35,7 +36,7 @@ class DaemonErrorScreen extends ConsumerWidget {
     final l10n = AppLocalizations.of(context)!;
     final settings = ref.watch(appSettingsProvider).valueOrNull;
     final showRemoteHint =
-        shouldPreferRemoteAria2 &&
+        (kIsWeb || isMobilePlatform) &&
         settings?.connectionMode != ConnectionMode.remote;
 
     return Scaffold(

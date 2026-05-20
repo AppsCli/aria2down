@@ -11,6 +11,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../aria2/daemon/local_daemon_paths.dart';
 import '../../core/launch_at_startup_helper.dart';
+import '../../core/platform_hints.dart';
 import '../../core/rpc_error_message.dart';
 import '../../core/app_deep_link.dart';
 import '../../core/local_rpc_credentials.dart';
@@ -148,7 +149,9 @@ class _SettingsFormState extends State<_SettingsForm> {
     super.initState();
     final s = widget.initial;
     _connectionMode = kIsWeb ? ConnectionMode.remote : s.connectionMode;
-    _localEngine = s.localEngine;
+    _localEngine = supportsSubprocessLocalEngine
+        ? s.localEngine
+        : LocalEngine.library;
     _fallbackToSubprocess = s.fallbackToSubprocess;
     _aria2PathCtrl = TextEditingController(text: s.aria2BinaryPath ?? '');
     _remoteEndpointCtrl = TextEditingController(
@@ -194,7 +197,9 @@ class _SettingsFormState extends State<_SettingsForm> {
 
     return AppSettings(
       connectionMode: kIsWeb ? ConnectionMode.remote : _connectionMode,
-      localEngine: _localEngine,
+      localEngine: supportsSubprocessLocalEngine
+          ? _localEngine
+          : LocalEngine.library,
       fallbackToSubprocess: _fallbackToSubprocess,
       remoteRpcEndpoint: _connectionMode == ConnectionMode.remote
           ? _remoteEndpointCtrl.text.trim()
@@ -528,11 +533,47 @@ class _SettingsFormState extends State<_SettingsForm> {
     final l10n = AppLocalizations.of(context)!;
     final t = Theme.of(context);
 
+    final mobile = isMobilePlatform;
+
     return Scaffold(
       appBar: AppBar(title: Text(l10n.settingsTitle)),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.fromLTRB(16, 16, 16, mobile ? 96 : 16),
         children: [
+          if (mobile)
+            Card(
+              margin: EdgeInsets.zero,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.smartphone_outlined,
+                      color: t.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            l10n.mobileSettingsCardTitle,
+                            style: t.textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            l10n.mobileSettingsCardBody,
+                            style: t.textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (mobile) const SizedBox(height: 16),
           Text(l10n.settingsConnection, style: t.textTheme.titleSmall),
           const SizedBox(height: 8),
           if (kIsWeb)
@@ -558,22 +599,31 @@ class _SettingsFormState extends State<_SettingsForm> {
             const SizedBox(height: 16),
             Text(l10n.settingsEngine, style: t.textTheme.titleSmall),
             const SizedBox(height: 8),
-            SegmentedButton<LocalEngine>(
-              segments: [
-                ButtonSegment(
-                  value: LocalEngine.library,
-                  label: Text(l10n.engineLibrary),
-                  icon: const Icon(Icons.memory_outlined),
-                ),
-                ButtonSegment(
-                  value: LocalEngine.subprocess,
-                  label: Text(l10n.engineSubprocess),
-                  icon: const Icon(Icons.terminal_outlined),
-                ),
-              ],
-              selected: {_localEngine},
-              onSelectionChanged: (v) => setState(() => _localEngine = v.first),
-            ),
+            if (supportsSubprocessLocalEngine)
+              SegmentedButton<LocalEngine>(
+                segments: [
+                  ButtonSegment(
+                    value: LocalEngine.library,
+                    label: Text(l10n.engineLibrary),
+                    icon: const Icon(Icons.memory_outlined),
+                  ),
+                  ButtonSegment(
+                    value: LocalEngine.subprocess,
+                    label: Text(l10n.engineSubprocess),
+                    icon: const Icon(Icons.terminal_outlined),
+                  ),
+                ],
+                selected: {_localEngine},
+                onSelectionChanged: (v) =>
+                    setState(() => _localEngine = v.first),
+              )
+            else
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.memory_outlined),
+                title: Text(l10n.engineLibrary),
+                subtitle: Text(l10n.engineLibraryDesc),
+              ),
             const SizedBox(height: 8),
             Text(
               _localEngine == LocalEngine.library
@@ -581,7 +631,8 @@ class _SettingsFormState extends State<_SettingsForm> {
                   : l10n.engineSubprocessDesc,
               style: t.textTheme.bodySmall,
             ),
-            if (_localEngine == LocalEngine.library) ...[
+            if (_localEngine == LocalEngine.library &&
+                supportsSubprocessLocalEngine) ...[
               const SizedBox(height: 8),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
@@ -607,11 +658,14 @@ class _SettingsFormState extends State<_SettingsForm> {
               spacing: 8,
               runSpacing: 4,
               children: [
-                for (final preset in const [
-                  '127.0.0.1:6800',
-                  'localhost:6800',
-                  '0.0.0.0:6800',
-                ])
+                for (final preset
+                    in mobile
+                        ? const ['127.0.0.1:6800', '192.168.1.1:6800']
+                        : const [
+                            '127.0.0.1:6800',
+                            'localhost:6800',
+                            '0.0.0.0:6800',
+                          ])
                   ActionChip(
                     label: Text(preset),
                     onPressed: () =>
@@ -877,8 +931,10 @@ class _SettingsFormState extends State<_SettingsForm> {
             onPressed: () => _confirmResetSettings(l10n),
             child: Text(l10n.resetSettings),
           ),
-          const SizedBox(height: 24),
-          FilledButton(onPressed: () => _save(l10n), child: Text(l10n.save)),
+          if (!mobile) ...[
+            const SizedBox(height: 24),
+            FilledButton(onPressed: () => _save(l10n), child: Text(l10n.save)),
+          ],
           const SizedBox(height: 32),
           Text(l10n.about, style: t.textTheme.titleSmall),
           ListTile(
@@ -893,6 +949,17 @@ class _SettingsFormState extends State<_SettingsForm> {
           ),
         ],
       ),
+      bottomNavigationBar: mobile
+          ? SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: FilledButton(
+                  onPressed: () => _save(l10n),
+                  child: Text(l10n.save),
+                ),
+              ),
+            )
+          : null,
     );
   }
 }

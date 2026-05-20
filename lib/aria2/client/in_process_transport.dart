@@ -9,15 +9,46 @@ import 'rpc_transport.dart';
 /// 这样 [Aria2Client] 与所有上层（Repository / UI / Provider）完全无感切换。
 /// JSON-RPC 的 `params` 与返回值形态与 aria2c 网络层一致，参考
 /// https://aria2.github.io/manual/en/html/aria2c.html#rpc-interface
+///
+/// 真正的 FFI 调用发生在 [Aria2NativeSession] 内部的 worker isolate，
+/// 这里只负责参数翻译与 await 结果。`onMutate` 钩子仍保留给外部调用方
+/// 触发自定义动作（worker 自身已在每次变更后主动 kick 一次事件循环）。
 final class Aria2InProcessTransport implements Aria2RpcTransport {
-  Aria2InProcessTransport(this.session);
+  Aria2InProcessTransport(this.session, {this.onMutate});
 
   final Aria2NativeSession session;
+
+  /// 任何会改变 aria2 内部状态的 RPC（addUri / pause / remove 等）调用后触发。
+  /// 主要用于让上层主动刷新 UI；worker 内部已经在变更后立即跑一次事件循环，
+  /// 调用方不必再为缩短首字节延迟而手动驱动。
+  final void Function()? onMutate;
+
+  static const _kMutatingMethods = <String>{
+    RpcMethods.addUri,
+    RpcMethods.addTorrent,
+    RpcMethods.addMetalink,
+    RpcMethods.remove,
+    RpcMethods.forceRemove,
+    RpcMethods.pause,
+    RpcMethods.forcePause,
+    RpcMethods.pauseAll,
+    RpcMethods.forcePauseAll,
+    RpcMethods.unpause,
+    RpcMethods.unpauseAll,
+    RpcMethods.purgeDownloadResult,
+    RpcMethods.removeDownloadResult,
+    RpcMethods.changeGlobalOption,
+    RpcMethods.changeOption,
+  };
 
   @override
   Future<Object?> call(String method, List<dynamic> params) async {
     try {
-      return _dispatch(method, params);
+      final result = await _dispatch(method, params);
+      if (_kMutatingMethods.contains(method)) {
+        onMutate?.call();
+      }
+      return result;
     } on Aria2NativeUnavailableException catch (e) {
       throw Aria2TransportException(e.message, cause: e);
     } on Aria2NativeCallException catch (e) {
@@ -25,7 +56,7 @@ final class Aria2InProcessTransport implements Aria2RpcTransport {
     }
   }
 
-  Object? _dispatch(String method, List<dynamic> params) {
+  Future<Object?> _dispatch(String method, List<dynamic> params) async {
     switch (method) {
       case RpcMethods.getVersion:
         return session.getVersion();
@@ -47,35 +78,35 @@ final class Aria2InProcessTransport implements Aria2RpcTransport {
         return session.addMetalink(metalink, options: options);
 
       case RpcMethods.remove:
-        session.remove(_stringAt(params, 0));
+        await session.remove(_stringAt(params, 0));
         return 'OK';
       case RpcMethods.forceRemove:
-        session.remove(_stringAt(params, 0), force: true);
+        await session.remove(_stringAt(params, 0), force: true);
         return 'OK';
       case RpcMethods.pause:
-        session.pause(_stringAt(params, 0));
+        await session.pause(_stringAt(params, 0));
         return 'OK';
       case RpcMethods.forcePause:
-        session.pause(_stringAt(params, 0), force: true);
+        await session.pause(_stringAt(params, 0), force: true);
         return 'OK';
       case RpcMethods.pauseAll:
-        session.pauseAll();
+        await session.pauseAll();
         return 'OK';
       case RpcMethods.forcePauseAll:
-        session.pauseAll(force: true);
+        await session.pauseAll(force: true);
         return 'OK';
       case RpcMethods.unpause:
-        session.unpause(_stringAt(params, 0));
+        await session.unpause(_stringAt(params, 0));
         return 'OK';
       case RpcMethods.unpauseAll:
-        session.unpauseAll();
+        await session.unpauseAll();
         return 'OK';
 
       case RpcMethods.purgeDownloadResult:
-        session.purgeDownloadResult();
+        await session.purgeDownloadResult();
         return 'OK';
       case RpcMethods.removeDownloadResult:
-        session.removeDownloadResult(_stringAt(params, 0));
+        await session.removeDownloadResult(_stringAt(params, 0));
         return 'OK';
 
       case RpcMethods.getFiles:
@@ -110,7 +141,7 @@ final class Aria2InProcessTransport implements Aria2RpcTransport {
         return session.getGlobalOption();
       case RpcMethods.changeGlobalOption:
         final opts = _stringMapOrNull(params, 0) ?? const <String, String>{};
-        session.changeGlobalOption(opts);
+        await session.changeGlobalOption(opts);
         return 'OK';
 
       case RpcMethods.getOption:
@@ -118,7 +149,7 @@ final class Aria2InProcessTransport implements Aria2RpcTransport {
       case RpcMethods.changeOption:
         final gid = _stringAt(params, 0);
         final opts = _stringMapOrNull(params, 1) ?? const <String, String>{};
-        session.changeOption(gid, opts);
+        await session.changeOption(gid, opts);
         return 'OK';
 
       case RpcMethods.shutdown:

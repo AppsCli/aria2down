@@ -404,7 +404,7 @@ class BtDownloadComplete extends Aria2Notification { final String gid; }
 
 | 平台 | 关键差异 |
 | --- | --- |
-| macOS | App 沙盒可关闭；`Process` 启动正常；需处理通知中心权限 |
+| macOS | App 沙盒启用；entitlements 含 `network.client`、用户自选目录与 Downloads 写权限；子进程 RPC 需 `network.server` |
 | Windows | `aria2c.exe`；UAC 弹窗（自启时） |
 | Linux | 多种发行版打包格式：deb / rpm / AppImage |
 | Android | aria2c 放入 `assets/`，启动时拷贝到 `getApplicationSupportDirectory()` 并 `chmod 755`；用 ForegroundService 守护 |
@@ -461,6 +461,7 @@ CI 跑 `flutter analyze` + `flutter test`；集成测试在本地或自托管 ru
 | ADR-005 | UI 层使用 Riverpod | Provider / Bloc | 类型安全、可组合、社区活跃 | 生效 |
 | ADR-006 | aria2 作为 git submodule（不 fork） | 复制源码 / vendoring | 易于跟随 upstream 更新，体积可控 | 生效 |
 | ADR-007 | **所有原生平台默认内嵌 libaria2（Dart FFI）**；保留子进程作为兜底/调试通道 | 继续 ADR-001 子进程模式 | 进程数 ↓、iOS 沙盒可用、启动时间 ↓、可同步事件 | **生效（默认引擎）** |
+| ADR-008 | libaria2 FFI 全部委派给独立 worker isolate（含事件循环 `run_once`） | 在主 isolate 同步调用 + Timer 驱动 `run_once` | UI 线程不再被 `eventPoll_->poll(refreshInterval=1s)` 阻塞，避免数百毫秒抖动 | **生效** |
 
 ### ADR-007：默认改用内嵌 libaria2（Dart FFI）
 
@@ -470,6 +471,7 @@ CI 跑 `flutter analyze` + `flutter test`；集成测试在本地或自托管 ru
 - **Web**：仍仅支持 [`RemoteDaemon`](../lib/aria2/daemon/remote_daemon.dart)（浏览器无法运行原生代码）。
 - **绑定层**：libaria2 是 C++ API，无法直接被 Dart FFI（仅 C ABI）绑定，故在 [packages/aria2_native/src/aria2_ffi.{h,cc}](../packages/aria2_native/src/aria2_ffi.h) 提供 `extern "C"` 薄封装；状态/选项序列化为 JSON 字符串以复用 [`Aria2Client`](../lib/aria2/client/aria2_client.dart) 原有解析路径。
 - **事件**：libaria2 的 `DownloadEventCallback` 经 `NativeCallable.listener` 跨线程推入 Dart `Stream`，再适配为现有的 [`Aria2NotificationSource`](../lib/aria2/client/ws_listener.dart) 形态，UI 层零改动。
+- **隔离 worker（ADR-008）**：libaria2 的 `aria2::run(RUN_ONCE)` 内部最长阻塞 1 s 等待 socket I/O，因此 `Aria2NativeSession` 把所有 FFI 调用统一委派给独立 worker isolate（[packages/aria2_native/lib/src/worker.dart](../packages/aria2_native/lib/src/worker.dart)）；事件回调由 worker 内的 `NativeCallable.listener` 接收后转发回主 isolate，主 isolate（UI 线程）零阻塞。
 - **构建**：每平台一份脚本：[scripts/build_libaria2_macos.sh](../scripts/build_libaria2_macos.sh)、`_linux.sh`、`_windows.sh`、`_android.sh`、`_ios.sh`；产物落到 `packages/aria2_native/prebuilt/<platform>/<arch>/`，FFI 插件 CMake/podspec 自动检测：未发现产物时编译为 **stub-only** 版本（每个入口返回 `ARIA2_FFI_ERR_UNAVAILABLE`），让 Dart 侧自动回退到子进程。
 - **依赖**：OpenSSL、c-ares、sqlite3、zlib 等以静态库形式链接，避免运行时依赖。各平台依赖落入 `prebuilt/<...>/deps/*.a`。
 - **包体积**：单平台预估 +6 ~ 12 MB（静态 strip 后）。

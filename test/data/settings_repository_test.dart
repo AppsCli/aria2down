@@ -15,17 +15,14 @@ void main() {
       );
     });
 
-    test('mobile/web default is remote when unset', () {
+    test('first install defaults: web remote, native local', () {
+      final mode = SettingsRepository.resolveConnectionMode(
+        hasStoredMode: false,
+      );
       if (shouldPreferRemoteAria2) {
-        expect(
-          SettingsRepository.resolveConnectionMode(hasStoredMode: false),
-          ConnectionMode.remote,
-        );
+        expect(mode, ConnectionMode.remote);
       } else {
-        expect(
-          SettingsRepository.resolveConnectionMode(hasStoredMode: false),
-          ConnectionMode.local,
-        );
+        expect(mode, ConnectionMode.local);
       }
     });
   });

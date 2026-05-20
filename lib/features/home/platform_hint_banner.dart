@@ -8,7 +8,7 @@ import '../../data/app_settings.dart';
 import '../../data/onboarding_repository.dart';
 import '../../providers/app_settings_provider.dart';
 
-/// 在移动/Web 平台提示使用远程 RPC（可关闭）。
+/// 在移动设备上提示后台下载限制（可关闭）；本机模式时显示。
 class PlatformHintBanner extends ConsumerStatefulWidget {
   const PlatformHintBanner({super.key, required this.child});
 
@@ -28,7 +28,7 @@ class _PlatformHintBannerState extends ConsumerState<PlatformHintBanner> {
   }
 
   Future<void> _load() async {
-    if (!shouldPreferRemoteAria2) return;
+    if (!isMobilePlatform) return;
     final dismissed = await OnboardingRepository.isPlatformHintDismissed();
     if (!mounted) return;
     setState(() => _visible = !dismissed);
@@ -39,7 +39,7 @@ class _PlatformHintBannerState extends ConsumerState<PlatformHintBanner> {
     final settings = ref.watch(appSettingsProvider).valueOrNull;
     if (!_visible ||
         settings == null ||
-        settings.connectionMode == ConnectionMode.remote) {
+        settings.connectionMode != ConnectionMode.local) {
       return widget.child;
     }
 
@@ -50,7 +50,7 @@ class _PlatformHintBannerState extends ConsumerState<PlatformHintBanner> {
       children: [
         MaterialBanner(
           content: Text(l10n.platformHintMessage),
-          leading: const Icon(Icons.cloud_outlined),
+          leading: const Icon(Icons.smartphone_outlined),
           actions: [
             TextButton(
               onPressed: () => context.go('/settings'),

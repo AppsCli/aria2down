@@ -6,34 +6,40 @@ import 'package:ffi/ffi.dart';
 
 import 'bindings.dart';
 import 'exceptions.dart';
+import 'worker.dart';
 
-/// High-level wrapper around the singleton libaria2 session.
+/// High-level wrapper around a libaria2 session that runs in a dedicated
+/// worker isolate.
 ///
-/// Owns the [Aria2NativeBindings] instance plus the active session handle and
-/// the [NativeCallable.listener] used to bridge download events.
+/// Every entry point is now `Future`-returning even when the underlying FFI
+/// call is cheap. The cost is a single inter-isolate hop (~tens of µs); the
+/// benefit is that the main / UI isolate is never blocked by libaria2's
+/// `DownloadEngine::poll()` which can stall for up to one second waiting for
+/// socket I/O.
 ///
-/// Not marked `final` so that integration tests can supply lightweight fakes
-/// (`implements Aria2NativeSession`) without standing up the real native
-/// library.
+/// Not marked `final` so integration tests can supply lightweight fakes
+/// (`implements Aria2NativeSession`) without standing up the real worker.
 class Aria2NativeSession {
-  Aria2NativeSession._(this._bindings, this._handle, this._eventBridge);
+  Aria2NativeSession._(this._bindings, this._worker, this._events);
 
   final Aria2NativeBindings _bindings;
-  int _handle;
-  _EventBridge? _eventBridge;
+  final Aria2NativeWorker? _worker;
+  final StreamController<Aria2NativeEvent> _events;
+  var _closed = false;
 
   Aria2NativeBindings get bindings => _bindings;
 
-  int get handle => _handle;
+  /// The numeric handle is kept for diagnostic / logging callers.
+  int get handle => _worker == null ? 0 : 1;
 
-  /// `0` means the session has been closed.
-  bool get isAlive => _handle != 0;
+  /// `false` once [close] returns.
+  bool get isAlive => _worker?.isAlive == true && !_closed;
 
   /// Stream of download events translated to aria2 JSON-RPC notification
   /// method names: `aria2.onDownloadStart`, `aria2.onDownloadPause`,
   /// `aria2.onDownloadStop`, `aria2.onDownloadComplete`,
   /// `aria2.onDownloadError`, `aria2.onBtDownloadComplete`.
-  Stream<Aria2NativeEvent> get events => _eventBridge!.stream;
+  Stream<Aria2NativeEvent> get events => _events.stream;
 
   /// Returns `true` when the underlying build actually links libaria2 (vs.
   /// stub-only). Cheap to call.
@@ -51,8 +57,9 @@ class Aria2NativeSession {
     }
   }
 
-  /// Open a fresh session. Set [options] to seed aria2 with command-line-style
-  /// options (e.g. `dir`, `max-concurrent-downloads`).
+  /// Open a fresh session in a dedicated worker isolate. Set [options] to
+  /// seed aria2 with command-line-style options (e.g. `dir`,
+  /// `max-concurrent-downloads`).
   static Future<Aria2NativeSession> open({
     required Aria2NativeBindings bindings,
     Map<String, String> options = const {},
@@ -60,399 +67,251 @@ class Aria2NativeSession {
     if (!isAvailable(bindings)) {
       throw const Aria2NativeUnavailableException();
     }
-    final initRv = bindings.aria2_ffi_library_init();
-    if (initRv != Aria2FfiResult.ok &&
-        initRv != Aria2FfiResult.alreadyInitialized) {
-      throw Aria2NativeCallException('aria2_ffi_library_init 失败', code: initRv);
-    }
-
-    final optsJson = options.isEmpty
-        ? ''
-        : jsonEncode(options.map((k, v) => MapEntry(k, v)));
-    final optsPtr = optsJson.isEmpty ? nullptr : optsJson.toNativeUtf8();
-    final handlePtr = calloc<Int64>();
-    try {
-      final rv = bindings.aria2_ffi_session_new(
-          optsPtr.cast<Utf8>(), handlePtr);
-      if (rv != Aria2FfiResult.ok) {
-        throw Aria2NativeCallException('aria2_ffi_session_new 失败', code: rv);
-      }
-      final handle = handlePtr.value;
-      final session = Aria2NativeSession._(bindings, handle, null);
-      session._eventBridge = _EventBridge(bindings, handle);
-      session._eventBridge!.attach();
-      return session;
-    } finally {
-      calloc.free(handlePtr);
-      if (optsPtr != nullptr) calloc.free(optsPtr);
-    }
+    final worker = await Aria2NativeWorker.spawn(options: options);
+    final events = StreamController<Aria2NativeEvent>.broadcast();
+    worker.events.listen((raw) {
+      if (raw.length < 2) return;
+      final ev = Aria2NativeEvent._fromCodes(raw[0], raw[1]);
+      if (ev != null && !events.isClosed) events.add(ev);
+    });
+    return Aria2NativeSession._(bindings, worker, events);
   }
 
   /// Schedule a graceful (or forced) shutdown and tear down the session.
   Future<void> close({bool force = false}) async {
-    if (!isAlive) return;
-    _eventBridge?.dispose();
-    _eventBridge = null;
-    _bindings.aria2_ffi_shutdown(_handle, force ? 1 : 0);
-    // Drain remaining events until run_once reports completion.
-    for (var i = 0; i < 50; i++) {
-      final rv = _bindings.aria2_ffi_run_once(_handle);
-      if (rv <= 0) break;
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+    if (_closed) return;
+    _closed = true;
+    final w = _worker;
+    if (w != null) {
+      await w.close(force: force);
     }
-    final rv = _bindings.aria2_ffi_session_final(_handle);
-    _handle = 0;
-    _bindings.aria2_ffi_library_deinit();
-    if (rv < 0 && rv != Aria2FfiResult.notInitialized) {
-      // Surface libaria2's exit code via logs; not fatal.
-      // ignore: avoid_print
-      print('[aria2_native] sessionFinal returned $rv');
-    }
+    if (!_events.isClosed) await _events.close();
   }
 
-  /// Drives the event loop once. Returns true if downloads are still in
-  /// progress, false when idle, and throws on error.
-  bool runOnce() {
+  /// Drives the event loop once manually. The worker already does this on
+  /// its own cadence; the method is kept for API compatibility but is rarely
+  /// needed.
+  Future<bool> runOnce() async {
     _ensureAlive();
-    final rv = _bindings.aria2_ffi_run_once(_handle);
-    if (rv < 0) {
-      throw Aria2NativeCallException('aria2_ffi_run_once 失败', code: rv);
-    }
-    return rv == 1;
+    final rv = await _worker!.send(WorkerOp.runOnce);
+    return rv == true;
   }
 
   // ----- Download CRUD ----------------------------------------------------
 
-  String addUri(List<String> uris,
-      {Map<String, String> options = const {}, int position = -1}) {
+  Future<String> addUri(
+    List<String> uris, {
+    Map<String, String> options = const {},
+    int position = -1,
+  }) async {
     _ensureAlive();
     final urisJson = jsonEncode(uris);
     final optsJson = options.isEmpty ? '' : jsonEncode(options);
-    return _withStrings([urisJson, optsJson], (ptrs) {
-      final out = calloc<Pointer<Utf8>>();
-      try {
-        final rv = _bindings.aria2_ffi_add_uri(
-            _handle, ptrs[0], ptrs[1], position, out);
-        if (rv != Aria2FfiResult.ok) {
-          throw Aria2NativeCallException('aria2_ffi_add_uri 失败', code: rv);
-        }
-        return _takeStringPtr(out.value);
-      } finally {
-        calloc.free(out);
-      }
-    });
+    final r = await _worker!.send(WorkerOp.addUri, [
+      urisJson,
+      optsJson,
+      position,
+    ]);
+    return r as String;
   }
 
-  String addTorrent(String torrentBase64,
-      {List<String> webSeedUris = const [],
-      Map<String, String> options = const {},
-      int position = -1}) {
+  Future<String> addTorrent(
+    String torrentBase64, {
+    List<String> webSeedUris = const [],
+    Map<String, String> options = const {},
+    int position = -1,
+  }) async {
     _ensureAlive();
     final urisJson = jsonEncode(webSeedUris);
     final optsJson = options.isEmpty ? '' : jsonEncode(options);
-    return _withStrings([torrentBase64, urisJson, optsJson], (ptrs) {
-      final out = calloc<Pointer<Utf8>>();
-      try {
-        final rv = _bindings.aria2_ffi_add_torrent(
-            _handle, ptrs[0], ptrs[1], ptrs[2], position, out);
-        if (rv != Aria2FfiResult.ok) {
-          throw Aria2NativeCallException('aria2_ffi_add_torrent 失败', code: rv);
-        }
-        return _takeStringPtr(out.value);
-      } finally {
-        calloc.free(out);
-      }
-    });
+    final r = await _worker!.send(WorkerOp.addTorrent, [
+      torrentBase64,
+      urisJson,
+      optsJson,
+      position,
+    ]);
+    return r as String;
   }
 
-  List<String> addMetalink(String metalinkBase64,
-      {Map<String, String> options = const {}, int position = -1}) {
+  Future<List<String>> addMetalink(
+    String metalinkBase64, {
+    Map<String, String> options = const {},
+    int position = -1,
+  }) async {
     _ensureAlive();
     final optsJson = options.isEmpty ? '' : jsonEncode(options);
-    return _withStrings([metalinkBase64, optsJson], (ptrs) {
-      final out = calloc<Pointer<Utf8>>();
-      try {
-        final rv = _bindings.aria2_ffi_add_metalink(
-            _handle, ptrs[0], ptrs[1], position, out);
-        if (rv != Aria2FfiResult.ok) {
-          throw Aria2NativeCallException('aria2_ffi_add_metalink 失败', code: rv);
-        }
-        final raw = _takeStringPtr(out.value);
-        final list = jsonDecode(raw);
-        if (list is! List) return const <String>[];
-        return list.map((e) => e.toString()).toList();
-      } finally {
-        calloc.free(out);
-      }
-    });
+    final raw = await _worker!.send(WorkerOp.addMetalink, [
+      metalinkBase64,
+      optsJson,
+      position,
+    ]);
+    final decoded = jsonDecode(raw as String);
+    if (decoded is! List) return const <String>[];
+    return decoded.map((e) => e.toString()).toList();
   }
 
-  void remove(String gid, {bool force = false}) {
+  Future<void> remove(String gid, {bool force = false}) async {
     _ensureAlive();
-    _withStrings([gid], (ptrs) {
-      final rv = _bindings.aria2_ffi_remove(_handle, ptrs[0], force ? 1 : 0);
-      if (rv != Aria2FfiResult.ok) {
-        throw Aria2NativeCallException('aria2_ffi_remove 失败', code: rv);
-      }
-    });
+    await _worker!.send(WorkerOp.remove, [gid, force ? 1 : 0]);
   }
 
-  void pause(String gid, {bool force = false}) {
+  Future<void> pause(String gid, {bool force = false}) async {
     _ensureAlive();
-    _withStrings([gid], (ptrs) {
-      final rv = _bindings.aria2_ffi_pause(_handle, ptrs[0], force ? 1 : 0);
-      if (rv != Aria2FfiResult.ok) {
-        throw Aria2NativeCallException('aria2_ffi_pause 失败', code: rv);
-      }
-    });
+    await _worker!.send(WorkerOp.pause, [gid, force ? 1 : 0]);
   }
 
-  void pauseAll({bool force = false}) {
+  Future<void> pauseAll({bool force = false}) async {
     _ensureAlive();
-    final rv = _bindings.aria2_ffi_pause_all(_handle, force ? 1 : 0);
-    if (rv != Aria2FfiResult.ok) {
-      throw Aria2NativeCallException('aria2_ffi_pause_all 失败', code: rv);
-    }
+    await _worker!.send(WorkerOp.pauseAll, [force ? 1 : 0]);
   }
 
-  void unpause(String gid) {
+  Future<void> unpause(String gid) async {
     _ensureAlive();
-    _withStrings([gid], (ptrs) {
-      final rv = _bindings.aria2_ffi_unpause(_handle, ptrs[0]);
-      if (rv != Aria2FfiResult.ok) {
-        throw Aria2NativeCallException('aria2_ffi_unpause 失败', code: rv);
-      }
-    });
+    await _worker!.send(WorkerOp.unpause, [gid]);
   }
 
-  void unpauseAll() {
+  Future<void> unpauseAll() async {
     _ensureAlive();
-    final rv = _bindings.aria2_ffi_unpause_all(_handle);
-    if (rv != Aria2FfiResult.ok) {
-      throw Aria2NativeCallException('aria2_ffi_unpause_all 失败', code: rv);
-    }
+    await _worker!.send(WorkerOp.unpauseAll);
   }
 
-  void purgeDownloadResult() {
+  Future<void> purgeDownloadResult() async {
     _ensureAlive();
-    final rv = _bindings.aria2_ffi_purge_download_result(_handle);
-    if (rv != Aria2FfiResult.ok) {
-      throw Aria2NativeCallException('aria2_ffi_purge_download_result 失败',
-          code: rv);
-    }
+    await _worker!.send(WorkerOp.purgeDownloadResult);
   }
 
-  void removeDownloadResult(String gid) {
+  Future<void> removeDownloadResult(String gid) async {
     _ensureAlive();
-    _withStrings([gid], (ptrs) {
-      final rv = _bindings.aria2_ffi_remove_download_result(_handle, ptrs[0]);
-      if (rv != Aria2FfiResult.ok) {
-        throw Aria2NativeCallException('aria2_ffi_remove_download_result 失败',
-            code: rv);
-      }
-    });
+    await _worker!.send(WorkerOp.removeDownloadResult, [gid]);
   }
 
-  void changeOption(String gid, Map<String, String> options) {
+  Future<void> changeOption(String gid, Map<String, String> options) async {
     _ensureAlive();
     final optsJson = jsonEncode(options);
-    _withStrings([gid, optsJson], (ptrs) {
-      final rv = _bindings.aria2_ffi_change_option(_handle, ptrs[0], ptrs[1]);
-      if (rv != Aria2FfiResult.ok) {
-        throw Aria2NativeCallException('aria2_ffi_change_option 失败', code: rv);
-      }
-    });
+    await _worker!.send(WorkerOp.changeOption, [gid, optsJson]);
   }
 
-  void changeGlobalOption(Map<String, String> options) {
+  Future<void> changeGlobalOption(Map<String, String> options) async {
     _ensureAlive();
     final optsJson = jsonEncode(options);
-    _withStrings([optsJson], (ptrs) {
-      final rv = _bindings.aria2_ffi_change_global_option(_handle, ptrs[0]);
-      if (rv != Aria2FfiResult.ok) {
-        throw Aria2NativeCallException('aria2_ffi_change_global_option 失败',
-            code: rv);
-      }
-    });
+    await _worker!.send(WorkerOp.changeGlobalOption, [optsJson]);
   }
 
   // ----- Queries ----------------------------------------------------------
 
-  Map<String, dynamic> tellStatus(String gid, {List<String>? keys}) {
+  Future<Map<String, dynamic>> tellStatus(
+    String gid, {
+    List<String>? keys,
+  }) async {
+    _ensureAlive();
     final keysJson = keys == null ? '' : jsonEncode(keys);
-    return _readJsonObject('aria2_ffi_tell_status', (out) {
-      return _withStrings([gid, keysJson], (ptrs) =>
-          _bindings.aria2_ffi_tell_status(_handle, ptrs[0], ptrs[1], out));
-    });
+    final raw = await _worker!.send(WorkerOp.tellStatus, [gid, keysJson]);
+    return _decodeObject(raw as String);
   }
 
-  List<Map<String, dynamic>> tellActive({List<String>? keys}) {
+  Future<List<Map<String, dynamic>>> tellActive({List<String>? keys}) async {
+    _ensureAlive();
     final keysJson = keys == null ? '' : jsonEncode(keys);
-    return _readJsonArray('aria2_ffi_tell_active', (out) {
-      return _withStrings([keysJson], (ptrs) =>
-          _bindings.aria2_ffi_tell_active(_handle, ptrs[0], out));
-    });
+    final raw = await _worker!.send(WorkerOp.tellActive, [keysJson]);
+    return _decodeArray(raw as String);
   }
 
-  List<Map<String, dynamic>> tellWaiting(
-      {int offset = 0, int num = 1000, List<String>? keys}) {
+  Future<List<Map<String, dynamic>>> tellWaiting({
+    int offset = 0,
+    int num = 1000,
+    List<String>? keys,
+  }) async {
+    _ensureAlive();
     final keysJson = keys == null ? '' : jsonEncode(keys);
-    return _readJsonArray('aria2_ffi_tell_waiting', (out) {
-      return _withStrings([keysJson], (ptrs) => _bindings
-          .aria2_ffi_tell_waiting(_handle, offset, num, ptrs[0], out));
-    });
+    final raw = await _worker!.send(WorkerOp.tellWaiting, [
+      offset,
+      num,
+      keysJson,
+    ]);
+    return _decodeArray(raw as String);
   }
 
-  List<Map<String, dynamic>> tellStopped(
-      {int offset = 0, int num = 1000, List<String>? keys}) {
+  Future<List<Map<String, dynamic>>> tellStopped({
+    int offset = 0,
+    int num = 1000,
+    List<String>? keys,
+  }) async {
+    _ensureAlive();
     final keysJson = keys == null ? '' : jsonEncode(keys);
-    return _readJsonArray('aria2_ffi_tell_stopped', (out) {
-      return _withStrings([keysJson], (ptrs) => _bindings
-          .aria2_ffi_tell_stopped(_handle, offset, num, ptrs[0], out));
-    });
+    final raw = await _worker!.send(WorkerOp.tellStopped, [
+      offset,
+      num,
+      keysJson,
+    ]);
+    return _decodeArray(raw as String);
   }
 
-  List<Map<String, dynamic>> getFiles(String gid) {
-    return _readJsonArray('aria2_ffi_get_files', (out) {
-      return _withStrings([gid], (ptrs) =>
-          _bindings.aria2_ffi_get_files(_handle, ptrs[0], out));
-    });
+  Future<List<Map<String, dynamic>>> getFiles(String gid) async {
+    _ensureAlive();
+    final raw = await _worker!.send(WorkerOp.getFiles, [gid]);
+    return _decodeArray(raw as String);
   }
 
-  List<Map<String, dynamic>> getPeers(String gid) {
-    return _readJsonArray('aria2_ffi_get_peers', (out) {
-      return _withStrings([gid], (ptrs) =>
-          _bindings.aria2_ffi_get_peers(_handle, ptrs[0], out));
-    });
+  Future<List<Map<String, dynamic>>> getPeers(String gid) async {
+    _ensureAlive();
+    final raw = await _worker!.send(WorkerOp.getPeers, [gid]);
+    return _decodeArray(raw as String);
   }
 
-  Map<String, dynamic> getGlobalStat() {
-    return _readJsonObject('aria2_ffi_get_global_stat',
-        (out) => _bindings.aria2_ffi_get_global_stat(_handle, out));
+  Future<Map<String, dynamic>> getGlobalStat() async {
+    _ensureAlive();
+    final raw = await _worker!.send(WorkerOp.getGlobalStat);
+    return _decodeObject(raw as String);
   }
 
-  Map<String, dynamic> getGlobalOption() {
-    return _readJsonObject('aria2_ffi_get_global_option',
-        (out) => _bindings.aria2_ffi_get_global_option(_handle, out));
+  Future<Map<String, dynamic>> getGlobalOption() async {
+    _ensureAlive();
+    final raw = await _worker!.send(WorkerOp.getGlobalOption);
+    return _decodeObject(raw as String);
   }
 
-  Map<String, dynamic> getOption(String gid) {
-    return _readJsonObject('aria2_ffi_get_option', (out) {
-      return _withStrings([gid], (ptrs) =>
-          _bindings.aria2_ffi_get_option(_handle, ptrs[0], out));
-    });
+  Future<Map<String, dynamic>> getOption(String gid) async {
+    _ensureAlive();
+    final raw = await _worker!.send(WorkerOp.getOption, [gid]);
+    return _decodeObject(raw as String);
   }
 
-  Map<String, dynamic> getVersion() {
-    return _readJsonObject('aria2_ffi_get_version',
-        (out) => _bindings.aria2_ffi_get_version(_handle, out));
+  Future<Map<String, dynamic>> getVersion() async {
+    _ensureAlive();
+    final raw = await _worker!.send(WorkerOp.getVersion);
+    return _decodeObject(raw as String);
   }
 
   // ----- Helpers ----------------------------------------------------------
 
   void _ensureAlive() {
     if (!isAlive) {
-      throw const Aria2NativeCallException('aria2_native session 已关闭',
-          code: -1006);
+      throw const Aria2NativeCallException(
+        'aria2_native session 已关闭',
+        code: -1006,
+      );
     }
   }
 
-  T _withStrings<T>(List<String> values, T Function(List<Pointer<Utf8>>) body) {
-    final ptrs = <Pointer<Utf8>>[];
-    for (final v in values) {
-      ptrs.add(v.isEmpty ? nullptr : v.toNativeUtf8());
-    }
-    try {
-      return body(ptrs);
-    } finally {
-      for (final p in ptrs) {
-        if (p != nullptr) calloc.free(p);
-      }
-    }
+  Map<String, dynamic> _decodeObject(String raw) {
+    if (raw.isEmpty) return <String, dynamic>{};
+    final decoded = jsonDecode(raw);
+    if (decoded is Map<String, dynamic>) return decoded;
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    return <String, dynamic>{};
   }
 
-  Map<String, dynamic> _readJsonObject(
-      String name, int Function(Pointer<Pointer<Utf8>>) call) {
-    final out = calloc<Pointer<Utf8>>();
-    try {
-      final rv = call(out);
-      if (rv != Aria2FfiResult.ok) {
-        throw Aria2NativeCallException('$name 失败', code: rv);
-      }
-      final raw = _takeStringPtr(out.value);
-      if (raw.isEmpty) return <String, dynamic>{};
-      final decoded = jsonDecode(raw);
-      if (decoded is Map<String, dynamic>) return decoded;
-      if (decoded is Map) return Map<String, dynamic>.from(decoded);
-      return <String, dynamic>{};
-    } finally {
-      calloc.free(out);
-    }
-  }
-
-  List<Map<String, dynamic>> _readJsonArray(
-      String name, int Function(Pointer<Pointer<Utf8>>) call) {
-    final out = calloc<Pointer<Utf8>>();
-    try {
-      final rv = call(out);
-      if (rv != Aria2FfiResult.ok) {
-        throw Aria2NativeCallException('$name 失败', code: rv);
-      }
-      final raw = _takeStringPtr(out.value);
-      if (raw.isEmpty) return const [];
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return const [];
-      return decoded
-          .map((e) =>
-              e is Map<String, dynamic> ? e : Map<String, dynamic>.from(e as Map))
-          .toList();
-    } finally {
-      calloc.free(out);
-    }
-  }
-
-  String _takeStringPtr(Pointer<Utf8> p) {
-    if (p == nullptr) return '';
-    try {
-      return p.toDartString();
-    } finally {
-      _bindings.aria2_ffi_free_string(p);
-    }
-  }
-}
-
-/// Bridges native event callbacks to a Dart broadcast stream.
-final class _EventBridge {
-  _EventBridge(this._bindings, this._handle);
-
-  final Aria2NativeBindings _bindings;
-  final int _handle;
-  final _controller = StreamController<Aria2NativeEvent>.broadcast();
-  NativeCallable<EventCbNative>? _callable;
-
-  Stream<Aria2NativeEvent> get stream => _controller.stream;
-
-  void attach() {
-    _callable = NativeCallable<EventCbNative>.listener(_onEvent);
-    final rv = _bindings.aria2_ffi_set_event_callback(
-        _handle, _callable!.nativeFunction, nullptr);
-    if (rv != Aria2FfiResult.ok) {
-      _callable!.close();
-      _callable = null;
-    }
-  }
-
-  void _onEvent(int event, int gid, Pointer<Void> userData) {
-    final ev = Aria2NativeEvent._fromCodes(event, gid);
-    if (ev != null && !_controller.isClosed) {
-      _controller.add(ev);
-    }
-  }
-
-  Future<void> dispose() async {
-    _callable?.close();
-    _callable = null;
-    if (!_controller.isClosed) await _controller.close();
+  List<Map<String, dynamic>> _decodeArray(String raw) {
+    if (raw.isEmpty) return const [];
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return const [];
+    return decoded
+        .map(
+          (e) => e is Map<String, dynamic>
+              ? e
+              : Map<String, dynamic>.from(e as Map),
+        )
+        .toList();
   }
 }
 

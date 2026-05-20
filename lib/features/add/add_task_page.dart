@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:aria2down/l10n/app_localizations.dart';
 import 'package:file_picker/file_picker.dart';
@@ -8,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/picked_file_bytes.dart';
+import '../../core/platform_hints.dart';
 import '../../core/queue_uris.dart';
 import '../../core/rpc_error_message.dart';
 import '../../core/torrent_metainfo.dart';
@@ -178,12 +179,12 @@ class _AddTaskPageState extends ConsumerState<AddTaskPage> {
     final pick = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: const ['torrent'],
+      withData: true,
     );
     if (pick == null || pick.files.isEmpty) return;
-    final path = pick.files.single.path;
-    if (path == null) return;
+    final bytes = await readPickedFileBytes(pick.files.single);
+    if (bytes == null) return;
     try {
-      final bytes = await File(path).readAsBytes();
       final entries = parseTorrentFileList(bytes);
       Set<int>? selected;
       if (entries.length > 1) {
@@ -224,12 +225,12 @@ class _AddTaskPageState extends ConsumerState<AddTaskPage> {
     final pick = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: const ['metalink', 'meta4'],
+      withData: true,
     );
     if (pick == null || pick.files.isEmpty) return;
-    final path = pick.files.single.path;
-    if (path == null) return;
+    final bytes = await readPickedFileBytes(pick.files.single);
+    if (bytes == null) return;
     try {
-      final bytes = await File(path).readAsBytes();
       final b64 = base64Encode(bytes);
       final opts = _buildRpcOptions();
       await d.client.addMetalink(b64, options: opts.isEmpty ? null : opts);
@@ -290,12 +291,13 @@ class _AddTaskPageState extends ConsumerState<AddTaskPage> {
     );
   }
 
-  Widget _buildActionButtons(AppLocalizations l10n) {
+  Widget _buildActionButtons(AppLocalizations l10n, {required bool mobile}) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
-        FilledButton(onPressed: _submitUrls, child: Text(l10n.addButton)),
+        if (!mobile)
+          FilledButton(onPressed: _submitUrls, child: Text(l10n.addButton)),
         OutlinedButton.icon(
           onPressed: _pasteFromClipboard,
           icon: const Icon(Icons.content_paste_outlined),
@@ -323,6 +325,7 @@ class _AddTaskPageState extends ConsumerState<AddTaskPage> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final mobile = isMobilePlatform;
     final urlField = TextField(
       controller: _urlCtrl,
       decoration: InputDecoration(
@@ -336,7 +339,7 @@ class _AddTaskPageState extends ConsumerState<AddTaskPage> {
     final sideColumn = Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildActionButtons(l10n),
+        _buildActionButtons(l10n, mobile: mobile),
         const SizedBox(height: 8),
         Text(l10n.torrentNote, style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 16),
@@ -346,12 +349,20 @@ class _AddTaskPageState extends ConsumerState<AddTaskPage> {
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.navAdd)),
+      floatingActionButton: mobile
+          ? FloatingActionButton.extended(
+              onPressed: _submitUrls,
+              icon: const Icon(Icons.add),
+              label: Text(l10n.addButton),
+            )
+          : null,
       body: LayoutBuilder(
         builder: (context, constraints) {
           final wide = constraints.maxWidth >= 720;
-          final padding = const EdgeInsets.all(16);
+          final padding = EdgeInsets.fromLTRB(16, 16, 16, mobile ? 88 : 16);
           if (!wide) {
             return SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               padding: padding,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -360,6 +371,7 @@ class _AddTaskPageState extends ConsumerState<AddTaskPage> {
             );
           }
           return SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             padding: padding,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,

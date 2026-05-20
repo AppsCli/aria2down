@@ -18,7 +18,9 @@ import 'daemon_state.dart';
 ///
 /// - 没有真实 RPC 端口；`rpcPort=0`、`rpcHttpUri=embedded://aria2/local`。
 /// - 事件回调通过 [_LibraryEventBridge] 适配为 [Aria2RpcNotification] 流。
-/// - 后台用 [Timer.periodic] 驱动 `aria2_ffi_run_once`，避免阻塞主线程。
+/// - libaria2 的事件循环 (`aria2_ffi_run_once`) 同步阻塞调用方至多 ~1s，
+///   因此 [Aria2NativeSession] 内部把所有 FFI 调用搬到独立 worker isolate，
+///   主 isolate（UI 线程）不再被任何 libaria2 调用阻塞。
 final class LibraryDaemon implements Aria2Daemon {
   LibraryDaemon({
     required Directory stateRoot,
@@ -40,11 +42,8 @@ final class LibraryDaemon implements Aria2Daemon {
   Aria2NativeSession? _session;
   Aria2Client? _client;
   _LibraryEventBridge? _bridge;
-  Timer? _runTimer;
   DaemonState _state = DaemonState.stopped;
   String? _logFilePath;
-
-  static const Duration _runInterval = Duration(milliseconds: 200);
 
   static Future<LibraryDaemon> create({required AppSettings settings}) async {
     final base = await getApplicationSupportDirectory();
@@ -127,6 +126,12 @@ final class LibraryDaemon implements Aria2Daemon {
       'disk-cache': '64M',
       'file-allocation': 'prealloc',
       'seed-time': '0',
+      // macOS App Sandbox / iOS 下 c-ares 拿不到系统 DNS 配置（mDNSResponder
+      // 走 XPC，c-ares 直接读 /etc/resolv.conf 又只看到回环 stub），结果是
+      // `Could not contact DNS servers`。关掉异步 DNS 走 getaddrinfo 即可；
+      // 同时给一组兜底服务器，确保即便用户显式打开 async-dns 也能解。
+      'async-dns': 'false',
+      'async-dns-server': '1.1.1.1,8.8.8.8,223.5.5.5,119.29.29.29',
       'log': _posix(logFile.path),
       'log-level': 'warn',
       'console-log-level': 'warn',
@@ -162,31 +167,14 @@ final class LibraryDaemon implements Aria2Daemon {
     _bridge = _LibraryEventBridge(_session!.events);
     _client = Aria2Client(transport: Aria2InProcessTransport(_session!));
 
-    _startRunLoop();
     _state = DaemonState.ready;
     await AndroidKeepAlive.start();
-  }
-
-  void _startRunLoop() {
-    _runTimer?.cancel();
-    _runTimer = Timer.periodic(_runInterval, (_) {
-      final s = _session;
-      if (s == null || !s.isAlive) return;
-      try {
-        s.runOnce();
-      } catch (_) {
-        // 单次运行错误不致命，下一轮会重试。
-      }
-    });
   }
 
   @override
   Future<void> stop({bool force = false}) async {
     if (_state == DaemonState.stopped) return;
     _state = DaemonState.stopping;
-
-    _runTimer?.cancel();
-    _runTimer = null;
 
     await _bridge?.dispose();
     _bridge = null;

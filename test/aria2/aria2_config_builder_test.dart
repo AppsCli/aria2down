@@ -17,6 +17,21 @@ void main() {
     expect(s, contains('dir=/tmp/dl'));
   });
 
+  test('Aria2ConfigBuilder 默认关闭 async-dns 并写入兜底服务器', () {
+    final s = Aria2ConfigBuilder(
+      rpcListenPort: 1,
+      rpcSecret: 'x',
+      downloadDir: '/d',
+      sessionFilePath: '/s',
+      logFilePath: '/l',
+    ).build();
+    expect(s, contains('async-dns=false'));
+    expect(
+      s,
+      contains('async-dns-server=1.1.1.1,8.8.8.8,223.5.5.5,119.29.29.29'),
+    );
+  });
+
   test('Aria2ConfigBuilder 写入限速与并发', () {
     final s = Aria2ConfigBuilder(
       rpcListenPort: 1,

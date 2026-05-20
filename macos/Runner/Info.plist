@@ -28,5 +28,7 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>aria2down needs local network access to connect to aria2 RPC on your NAS or other devices on the same network.</string>
 </dict>
 </plist>

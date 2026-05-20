@@ -670,13 +670,26 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get platformHintMessage =>
-      'On this device, connect to a remote aria2 RPC (NAS or a machine already running aria2). Switch to Remote RPC in Settings.';
+      'Downloads may pause when the app is in the background. Keep the app open or use Remote RPC to a server that stays online.';
 
   @override
   String get platformHintOpenSettings => 'Open settings';
 
   @override
   String get platformHintDismiss => 'Don\'t show again';
+
+  @override
+  String get mobileSettingsCardTitle => 'Mobile tips';
+
+  @override
+  String get mobileSettingsCardBody =>
+      'Local mode downloads inside the app. Switch to Remote RPC to use aria2 on a NAS or PC. Background downloads may pause when the screen is locked.';
+
+  @override
+  String get welcomeUseLocal => 'Use local download';
+
+  @override
+  String get welcomeSetupRemote => 'Set up remote RPC';
 
   @override
   String get daemonErrorTitle => 'Cannot connect to aria2';
@@ -700,7 +713,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get welcomeRemoteBody =>
-      'On this device, connect to an aria2 instance that is already running (NAS, PC, or server). Open Settings → Remote RPC and enter the address and token.';
+      'Download on this device with the built-in engine, or connect to aria2 on a NAS or PC via Remote RPC in Settings.';
 
   @override
   String get snackAllDuplicates => 'These links are already in the queue';

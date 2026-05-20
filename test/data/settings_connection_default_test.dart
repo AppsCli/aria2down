@@ -4,13 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('resolveConnectionMode', () {
-    test('no stored key prefers remote on mobile/web platforms', () {
-      // Unit-test the resolver logic with explicit stored flag.
+    test('no stored key returns web=remote or native=local', () {
       expect(
-        SettingsRepository.resolveConnectionMode(
-          hasStoredMode: false,
-          storedRaw: null,
-        ),
+        SettingsRepository.resolveConnectionMode(hasStoredMode: false),
         isA<ConnectionMode>(),
       );
     });

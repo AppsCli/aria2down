@@ -10,8 +10,30 @@
 - **iOS 现在原生支持本机下载**（取代此前的仅远程模式），通过 `packages/aria2_native` 静态链接 libaria2。
 - **设置 → 本机引擎**：新增 **内嵌库 / aria2c 子进程** 切换；默认开启「失败时自动回退到子进程」，确保旧版构建/未带 libaria2 产物的环境仍可工作。
 
+### 变更
+
+- **移动端体验**：首次安装默认本机内嵌引擎；设置页移动端说明卡片与底部保存栏；任务列表 FAB、滑动操作、紧凑统计；添加页 FAB；后台降低轮询频率；更新欢迎与横幅文案（本机下载 + 后台限制说明）；iOS 隐藏子进程引擎选项。
+
 ### 修复
 
+- **界面操作延迟数百毫秒**：根因是 `Aria2InProcessTransport` / `LibraryDaemon`
+  在主 isolate（Flutter UI 线程）上同步调用 `aria2_ffi_run_once`，进而触发
+  libaria2 `DownloadEngine::run(RUN_ONCE)` → `eventPoll_->poll(refreshInterval=1s)`，
+  每次都可能阻塞主线程最长 1 秒，与定时器 200ms~800ms 的 tick 叠加后
+  几乎持续占用 UI 线程。修复方案：把所有 libaria2 FFI 调用搬到独立 worker
+  isolate（`packages/aria2_native/lib/src/worker.dart`），主 isolate 仅通过
+  SendPort 异步收发消息；事件回调亦在 worker 内由 `NativeCallable.listener`
+  接收后转发回主 isolate。`Aria2NativeSession` 全部 API 改为 `Future<T>`，
+  `Aria2InProcessTransport._dispatch` 相应 `await`。worker 自带自适应运行
+  循环（活跃 80ms / 空闲 800ms）并在每次变更类 RPC 后立刻 kick 一次，
+  无需主 isolate 维护任何 Timer。UI 线程不再因事件循环停顿。
+- **macOS 沙盒 / iOS 下载报「Could not contact DNS servers」**：根因是
+  aria2 默认使用 c-ares 异步 DNS，沙盒里 `/etc/resolv.conf` 只有 mDNSResponder
+  的 loopback stub，c-ares 没有 XPC 通道无法解析。两条 daemon 路径
+  （`Aria2ConfigBuilder` / `LibraryDaemon`）默认写入 `async-dns=false`，
+  回退到系统 `getaddrinfo`；同时附带 `async-dns-server=1.1.1.1,8.8.8.8,223.5.5.5,119.29.29.29`
+  作为用户重新开启异步 DNS 时的兜底。
+- **跨平台权限与网络策略**：macOS 沙盒补充 `network.client`、`files.user-selected.read-write`、`files.downloads.read-write`；Android 增加 `network_security_config`、启动前台服务前请求 `POST_NOTIFICATIONS`；iOS 增加 ATS（本地/用户 RPC HTTP）与 `NSLocalNetworkUsageDescription`；Android torrent/metalink 选择使用 `withData` 避免 `path == null`。
 - **macOS 启动闪退（io.flutter.ui 线程 SIGSEGV in `SSL_CTX_set_default_verify_paths`）**：根因是
   静态链接的 OpenSSL 3.x 在 macOS 下 `OSSL_PROVIDER_load("legacy")` 走 DSO 路径加载失败，
   aria2 `Platform::setUp` 抛异常但 `initialized_` 标志已置位，二次 `libraryInit` 假成功，
@@ -56,6 +78,8 @@
 - **Native Messaging**：`install_native_messaging_host.sh` 安装脚本。
 - **文档**： [docs/WINDOWS.md](docs/WINDOWS.md)；关于页 **桌面快捷键** 说明；设置 **复制示例深链**。
 - **性能**：任务详情/历史 `tellStatus` 使用精简 `keys`；列表轮询 **缓存 aria2 版本**（仅首次/手动刷新拉取）。
+- **性能**：任务列表轮询不再拉取 `bitfield` 等大字段；`tellWaiting` 上限 200；WS 事件 **400ms 防抖** + 进行中请求 **合并**，避免重叠 RPC 拖慢 UI。
+- **性能**：内嵌库 `aria2_ffi_run_once` **自适应间隔**（活跃 200ms / 空闲 800ms），变更类 RPC 立即唤醒；任务列表 **签名 diff** 跳过无变化的整页重建；移除每行 `Consumer` 包装并将 Theme 与回调上提；任务详情 BT 选项首次后不再重拉、`getPeers` 仅在 Peers Tab 或每 5 轮拉一次。
 - **任务列表**：搜索 **250ms 防抖**。
 - **桌面快捷键**：⌘/Ctrl+N 打开新建任务。
 - **任务详情**：复制 **应用内添加深链**（`/add?uri=`）；[docs/DEEPLINKS.md](docs/DEEPLINKS.md)。

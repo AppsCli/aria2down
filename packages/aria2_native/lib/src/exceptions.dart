@@ -15,9 +15,10 @@ sealed class Aria2NativeException implements Exception {
 /// fall back to the subprocess engine.
 final class Aria2NativeUnavailableException extends Aria2NativeException {
   const Aria2NativeUnavailableException()
-      : super(
-            '当前 aria2_native 构建未链接 libaria2；请在设置中切换到子进程引擎或安装完整构建。',
-            code: -1001);
+    : super(
+        '当前 aria2_native 构建未链接 libaria2；请在设置中切换到子进程引擎或安装完整构建。',
+        code: -1001,
+      );
 }
 
 /// Thrown when a native call returns a non-zero error code.

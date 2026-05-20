@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  User-configured aria2 RPC is often plain HTTP (LAN NAS, host:port).
+  Android NSC cannot express arbitrary RFC1918 IP ranges per host.
+  Cleartext is permitted; prefer https:// for RPC exposed beyond the LAN.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

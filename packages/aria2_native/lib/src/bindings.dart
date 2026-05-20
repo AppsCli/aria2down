@@ -44,155 +44,251 @@ final class Aria2NativeBindings {
   final DynamicLibrary _dl;
 
   late final aria2_ffi_is_available = _dl
-      .lookupFunction<Int32 Function(), int Function()>('aria2_ffi_is_available');
+      .lookupFunction<Int32 Function(), int Function()>(
+        'aria2_ffi_is_available',
+      );
 
-  late final aria2_ffi_library_version = _dl.lookupFunction<
-      Pointer<Utf8> Function(),
-      Pointer<Utf8> Function()>('aria2_ffi_library_version');
+  late final aria2_ffi_library_version = _dl
+      .lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
+        'aria2_ffi_library_version',
+      );
 
-  late final aria2_ffi_free_string = _dl.lookupFunction<
-      Void Function(Pointer<Utf8>),
-      void Function(Pointer<Utf8>)>('aria2_ffi_free_string');
+  late final aria2_ffi_free_string = _dl
+      .lookupFunction<
+        Void Function(Pointer<Utf8>),
+        void Function(Pointer<Utf8>)
+      >('aria2_ffi_free_string');
 
   late final aria2_ffi_library_init = _dl
-      .lookupFunction<Int32 Function(), int Function()>('aria2_ffi_library_init');
+      .lookupFunction<Int32 Function(), int Function()>(
+        'aria2_ffi_library_init',
+      );
 
   late final aria2_ffi_library_deinit = _dl
-      .lookupFunction<Int32 Function(), int Function()>('aria2_ffi_library_deinit');
+      .lookupFunction<Int32 Function(), int Function()>(
+        'aria2_ffi_library_deinit',
+      );
 
-  late final aria2_ffi_session_new = _dl.lookupFunction<
-      Int32 Function(Pointer<Utf8>, Pointer<Int64>),
-      int Function(Pointer<Utf8>, Pointer<Int64>)>('aria2_ffi_session_new');
+  late final aria2_ffi_session_new = _dl
+      .lookupFunction<
+        Int32 Function(Pointer<Utf8>, Pointer<Int64>),
+        int Function(Pointer<Utf8>, Pointer<Int64>)
+      >('aria2_ffi_session_new');
 
-  late final aria2_ffi_session_final = _dl.lookupFunction<
-      Int32 Function(Int64),
-      int Function(int)>('aria2_ffi_session_final');
+  late final aria2_ffi_session_final = _dl
+      .lookupFunction<Int32 Function(Int64), int Function(int)>(
+        'aria2_ffi_session_final',
+      );
 
-  late final aria2_ffi_run_once = _dl.lookupFunction<
-      Int32 Function(Int64),
-      int Function(int)>('aria2_ffi_run_once');
+  late final aria2_ffi_run_once = _dl
+      .lookupFunction<Int32 Function(Int64), int Function(int)>(
+        'aria2_ffi_run_once',
+      );
 
-  late final aria2_ffi_shutdown = _dl.lookupFunction<
-      Int32 Function(Int64, Int32),
-      int Function(int, int)>('aria2_ffi_shutdown');
+  late final aria2_ffi_shutdown = _dl
+      .lookupFunction<Int32 Function(Int64, Int32), int Function(int, int)>(
+        'aria2_ffi_shutdown',
+      );
 
-  late final aria2_ffi_set_event_callback = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<NativeFunction<EventCbNative>>, Pointer<Void>),
-      int Function(int, Pointer<NativeFunction<EventCbNative>>, Pointer<Void>)>(
-      'aria2_ffi_set_event_callback');
+  late final aria2_ffi_set_event_callback = _dl
+      .lookupFunction<
+        Int32 Function(
+          Int64,
+          Pointer<NativeFunction<EventCbNative>>,
+          Pointer<Void>,
+        ),
+        int Function(int, Pointer<NativeFunction<EventCbNative>>, Pointer<Void>)
+      >('aria2_ffi_set_event_callback');
 
-  late final aria2_ffi_add_uri = _dl.lookupFunction<
-      Int32 Function(
-          Int64, Pointer<Utf8>, Pointer<Utf8>, Int32, Pointer<Pointer<Utf8>>),
-      int Function(
-          int, Pointer<Utf8>, Pointer<Utf8>, int, Pointer<Pointer<Utf8>>)>(
-      'aria2_ffi_add_uri');
+  late final aria2_ffi_add_uri = _dl
+      .lookupFunction<
+        Int32 Function(
+          Int64,
+          Pointer<Utf8>,
+          Pointer<Utf8>,
+          Int32,
+          Pointer<Pointer<Utf8>>,
+        ),
+        int Function(
+          int,
+          Pointer<Utf8>,
+          Pointer<Utf8>,
+          int,
+          Pointer<Pointer<Utf8>>,
+        )
+      >('aria2_ffi_add_uri');
 
-  late final aria2_ffi_add_torrent = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Int32,
-          Pointer<Pointer<Utf8>>),
-      int Function(int, Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, int,
-          Pointer<Pointer<Utf8>>)>('aria2_ffi_add_torrent');
+  late final aria2_ffi_add_torrent = _dl
+      .lookupFunction<
+        Int32 Function(
+          Int64,
+          Pointer<Utf8>,
+          Pointer<Utf8>,
+          Pointer<Utf8>,
+          Int32,
+          Pointer<Pointer<Utf8>>,
+        ),
+        int Function(
+          int,
+          Pointer<Utf8>,
+          Pointer<Utf8>,
+          Pointer<Utf8>,
+          int,
+          Pointer<Pointer<Utf8>>,
+        )
+      >('aria2_ffi_add_torrent');
 
-  late final aria2_ffi_add_metalink = _dl.lookupFunction<
-      Int32 Function(
-          Int64, Pointer<Utf8>, Pointer<Utf8>, Int32, Pointer<Pointer<Utf8>>),
-      int Function(
-          int, Pointer<Utf8>, Pointer<Utf8>, int, Pointer<Pointer<Utf8>>)>(
-      'aria2_ffi_add_metalink');
+  late final aria2_ffi_add_metalink = _dl
+      .lookupFunction<
+        Int32 Function(
+          Int64,
+          Pointer<Utf8>,
+          Pointer<Utf8>,
+          Int32,
+          Pointer<Pointer<Utf8>>,
+        ),
+        int Function(
+          int,
+          Pointer<Utf8>,
+          Pointer<Utf8>,
+          int,
+          Pointer<Pointer<Utf8>>,
+        )
+      >('aria2_ffi_add_metalink');
 
-  late final aria2_ffi_remove = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<Utf8>, Int32),
-      int Function(int, Pointer<Utf8>, int)>('aria2_ffi_remove');
+  late final aria2_ffi_remove = _dl
+      .lookupFunction<
+        Int32 Function(Int64, Pointer<Utf8>, Int32),
+        int Function(int, Pointer<Utf8>, int)
+      >('aria2_ffi_remove');
 
-  late final aria2_ffi_pause = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<Utf8>, Int32),
-      int Function(int, Pointer<Utf8>, int)>('aria2_ffi_pause');
+  late final aria2_ffi_pause = _dl
+      .lookupFunction<
+        Int32 Function(Int64, Pointer<Utf8>, Int32),
+        int Function(int, Pointer<Utf8>, int)
+      >('aria2_ffi_pause');
 
-  late final aria2_ffi_pause_all = _dl.lookupFunction<
-      Int32 Function(Int64, Int32),
-      int Function(int, int)>('aria2_ffi_pause_all');
+  late final aria2_ffi_pause_all = _dl
+      .lookupFunction<Int32 Function(Int64, Int32), int Function(int, int)>(
+        'aria2_ffi_pause_all',
+      );
 
-  late final aria2_ffi_unpause = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<Utf8>),
-      int Function(int, Pointer<Utf8>)>('aria2_ffi_unpause');
+  late final aria2_ffi_unpause = _dl
+      .lookupFunction<
+        Int32 Function(Int64, Pointer<Utf8>),
+        int Function(int, Pointer<Utf8>)
+      >('aria2_ffi_unpause');
 
-  late final aria2_ffi_unpause_all = _dl.lookupFunction<
-      Int32 Function(Int64),
-      int Function(int)>('aria2_ffi_unpause_all');
+  late final aria2_ffi_unpause_all = _dl
+      .lookupFunction<Int32 Function(Int64), int Function(int)>(
+        'aria2_ffi_unpause_all',
+      );
 
-  late final aria2_ffi_purge_download_result = _dl.lookupFunction<
-      Int32 Function(Int64),
-      int Function(int)>('aria2_ffi_purge_download_result');
+  late final aria2_ffi_purge_download_result = _dl
+      .lookupFunction<Int32 Function(Int64), int Function(int)>(
+        'aria2_ffi_purge_download_result',
+      );
 
-  late final aria2_ffi_remove_download_result = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<Utf8>),
-      int Function(int, Pointer<Utf8>)>('aria2_ffi_remove_download_result');
+  late final aria2_ffi_remove_download_result = _dl
+      .lookupFunction<
+        Int32 Function(Int64, Pointer<Utf8>),
+        int Function(int, Pointer<Utf8>)
+      >('aria2_ffi_remove_download_result');
 
-  late final aria2_ffi_change_position = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<Utf8>, Int32, Int32),
-      int Function(int, Pointer<Utf8>, int, int)>('aria2_ffi_change_position');
+  late final aria2_ffi_change_position = _dl
+      .lookupFunction<
+        Int32 Function(Int64, Pointer<Utf8>, Int32, Int32),
+        int Function(int, Pointer<Utf8>, int, int)
+      >('aria2_ffi_change_position');
 
-  late final aria2_ffi_change_option = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<Utf8>, Pointer<Utf8>),
-      int Function(int, Pointer<Utf8>, Pointer<Utf8>)>('aria2_ffi_change_option');
+  late final aria2_ffi_change_option = _dl
+      .lookupFunction<
+        Int32 Function(Int64, Pointer<Utf8>, Pointer<Utf8>),
+        int Function(int, Pointer<Utf8>, Pointer<Utf8>)
+      >('aria2_ffi_change_option');
 
-  late final aria2_ffi_change_global_option = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<Utf8>),
-      int Function(int, Pointer<Utf8>)>('aria2_ffi_change_global_option');
+  late final aria2_ffi_change_global_option = _dl
+      .lookupFunction<
+        Int32 Function(Int64, Pointer<Utf8>),
+        int Function(int, Pointer<Utf8>)
+      >('aria2_ffi_change_global_option');
 
-  late final aria2_ffi_tell_status = _dl.lookupFunction<
-      Int32 Function(
-          Int64, Pointer<Utf8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>),
-      int Function(
-          int, Pointer<Utf8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>)>(
-      'aria2_ffi_tell_status');
+  late final aria2_ffi_tell_status = _dl
+      .lookupFunction<
+        Int32 Function(
+          Int64,
+          Pointer<Utf8>,
+          Pointer<Utf8>,
+          Pointer<Pointer<Utf8>>,
+        ),
+        int Function(int, Pointer<Utf8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>)
+      >('aria2_ffi_tell_status');
 
-  late final aria2_ffi_tell_active = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<Utf8>, Pointer<Pointer<Utf8>>),
-      int Function(int, Pointer<Utf8>, Pointer<Pointer<Utf8>>)>(
-      'aria2_ffi_tell_active');
+  late final aria2_ffi_tell_active = _dl
+      .lookupFunction<
+        Int32 Function(Int64, Pointer<Utf8>, Pointer<Pointer<Utf8>>),
+        int Function(int, Pointer<Utf8>, Pointer<Pointer<Utf8>>)
+      >('aria2_ffi_tell_active');
 
-  late final aria2_ffi_tell_waiting = _dl.lookupFunction<
-      Int32 Function(
-          Int64, Int32, Int32, Pointer<Utf8>, Pointer<Pointer<Utf8>>),
-      int Function(
-          int, int, int, Pointer<Utf8>, Pointer<Pointer<Utf8>>)>(
-      'aria2_ffi_tell_waiting');
+  late final aria2_ffi_tell_waiting = _dl
+      .lookupFunction<
+        Int32 Function(
+          Int64,
+          Int32,
+          Int32,
+          Pointer<Utf8>,
+          Pointer<Pointer<Utf8>>,
+        ),
+        int Function(int, int, int, Pointer<Utf8>, Pointer<Pointer<Utf8>>)
+      >('aria2_ffi_tell_waiting');
 
-  late final aria2_ffi_tell_stopped = _dl.lookupFunction<
-      Int32 Function(
-          Int64, Int32, Int32, Pointer<Utf8>, Pointer<Pointer<Utf8>>),
-      int Function(
-          int, int, int, Pointer<Utf8>, Pointer<Pointer<Utf8>>)>(
-      'aria2_ffi_tell_stopped');
+  late final aria2_ffi_tell_stopped = _dl
+      .lookupFunction<
+        Int32 Function(
+          Int64,
+          Int32,
+          Int32,
+          Pointer<Utf8>,
+          Pointer<Pointer<Utf8>>,
+        ),
+        int Function(int, int, int, Pointer<Utf8>, Pointer<Pointer<Utf8>>)
+      >('aria2_ffi_tell_stopped');
 
-  late final aria2_ffi_get_files = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<Utf8>, Pointer<Pointer<Utf8>>),
-      int Function(int, Pointer<Utf8>, Pointer<Pointer<Utf8>>)>(
-      'aria2_ffi_get_files');
+  late final aria2_ffi_get_files = _dl
+      .lookupFunction<
+        Int32 Function(Int64, Pointer<Utf8>, Pointer<Pointer<Utf8>>),
+        int Function(int, Pointer<Utf8>, Pointer<Pointer<Utf8>>)
+      >('aria2_ffi_get_files');
 
-  late final aria2_ffi_get_peers = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<Utf8>, Pointer<Pointer<Utf8>>),
-      int Function(int, Pointer<Utf8>, Pointer<Pointer<Utf8>>)>(
-      'aria2_ffi_get_peers');
+  late final aria2_ffi_get_peers = _dl
+      .lookupFunction<
+        Int32 Function(Int64, Pointer<Utf8>, Pointer<Pointer<Utf8>>),
+        int Function(int, Pointer<Utf8>, Pointer<Pointer<Utf8>>)
+      >('aria2_ffi_get_peers');
 
-  late final aria2_ffi_get_global_stat = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<Pointer<Utf8>>),
-      int Function(int, Pointer<Pointer<Utf8>>)>('aria2_ffi_get_global_stat');
+  late final aria2_ffi_get_global_stat = _dl
+      .lookupFunction<
+        Int32 Function(Int64, Pointer<Pointer<Utf8>>),
+        int Function(int, Pointer<Pointer<Utf8>>)
+      >('aria2_ffi_get_global_stat');
 
-  late final aria2_ffi_get_global_option = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<Pointer<Utf8>>),
-      int Function(int, Pointer<Pointer<Utf8>>)>('aria2_ffi_get_global_option');
+  late final aria2_ffi_get_global_option = _dl
+      .lookupFunction<
+        Int32 Function(Int64, Pointer<Pointer<Utf8>>),
+        int Function(int, Pointer<Pointer<Utf8>>)
+      >('aria2_ffi_get_global_option');
 
-  late final aria2_ffi_get_option = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<Utf8>, Pointer<Pointer<Utf8>>),
-      int Function(int, Pointer<Utf8>, Pointer<Pointer<Utf8>>)>(
-      'aria2_ffi_get_option');
+  late final aria2_ffi_get_option = _dl
+      .lookupFunction<
+        Int32 Function(Int64, Pointer<Utf8>, Pointer<Pointer<Utf8>>),
+        int Function(int, Pointer<Utf8>, Pointer<Pointer<Utf8>>)
+      >('aria2_ffi_get_option');
 
-  late final aria2_ffi_get_version = _dl.lookupFunction<
-      Int32 Function(Int64, Pointer<Pointer<Utf8>>),
-      int Function(int, Pointer<Pointer<Utf8>>)>('aria2_ffi_get_version');
+  late final aria2_ffi_get_version = _dl
+      .lookupFunction<
+        Int32 Function(Int64, Pointer<Pointer<Utf8>>),
+        int Function(int, Pointer<Pointer<Utf8>>)
+      >('aria2_ffi_get_version');
 }
 
 /// Native signature for the event callback bridge.

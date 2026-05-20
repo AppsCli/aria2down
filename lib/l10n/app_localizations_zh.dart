@@ -649,13 +649,26 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get platformHintMessage =>
-      '本设备建议连接远程 aria2（NAS / 本机已运行的 aria2 RPC），在设置中切换为「远程 RPC」并填写地址。';
+      '应用进入后台时本机下载可能暂停。可保持应用在前台，或在设置中改用「远程 RPC」连接常在线的服务器。';
 
   @override
   String get platformHintOpenSettings => '打开设置';
 
   @override
   String get platformHintDismiss => '不再提示';
+
+  @override
+  String get mobileSettingsCardTitle => '移动端说明';
+
+  @override
+  String get mobileSettingsCardBody =>
+      '本机模式在应用内直接下载。若 aria2 运行在 NAS 或电脑上，可在设置中切换为「远程 RPC」。锁屏或切到后台时，本机下载可能暂停。';
+
+  @override
+  String get welcomeUseLocal => '使用本机下载';
+
+  @override
+  String get welcomeSetupRemote => '配置远程 RPC';
 
   @override
   String get daemonErrorTitle => '无法连接 aria2';
@@ -679,7 +692,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get welcomeRemoteBody =>
-      '在本设备上请连接已在运行的 aria2（NAS、电脑或服务器）。打开「设置」→「远程 RPC」，填写地址与 Token。';
+      '可直接在本机下载（内嵌 aria2），或在设置中通过「远程 RPC」连接 NAS、电脑等已运行的 aria2。';
 
   @override
   String get snackAllDuplicates => '这些链接已在队列中';

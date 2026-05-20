@@ -3,7 +3,7 @@ description: >-
   Dart FFI bindings to a thin C shim around libaria2. Used by aria2down to run
   the aria2 download engine in-process on every native platform (macOS, Linux,
   Windows, Android, iOS).
-version: 0.1.0
+version: 0.2.0
 publish_to: 'none'
 
 environment:

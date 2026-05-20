@@ -40,11 +40,17 @@ class _TaskDetailPageState extends ConsumerState<TaskDetailPage>
   String? _error;
   bool _peersTried = false;
   String? _pollStatusKey;
+  bool _loadInFlight = false;
+  bool _btOptionsLoaded = false;
+  int _peersTickCounter = 0;
 
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 3, vsync: this);
+    _tabs = TabController(length: 3, vsync: this)
+      ..addListener(() {
+        if (mounted) setState(() {});
+      });
     _scheduleLoad();
     _restartPollTimer('active');
   }
@@ -57,52 +63,69 @@ class _TaskDetailPageState extends ConsumerState<TaskDetailPage>
   }
 
   void _scheduleLoad() {
+    if (_loadInFlight) return;
+    _loadInFlight = true;
     scheduleMicrotask(() async {
-      final d = ref.read(aria2DaemonProvider).value;
-      if (d == null || !mounted) return;
       try {
-        final st = await d.client.tellStatus(
-          widget.gid,
-          keys: kTaskDetailTellKeys,
-        );
-        List<Map<String, dynamic>> peers = _peers;
-        final isBt = st['bittorrent'] != null;
-        Map<String, String>? btOpts = _btOptions;
-        if (isBt) {
-          try {
-            peers = await d.client.getPeers(widget.gid);
-          } catch (_) {
+        final d = ref.read(aria2DaemonProvider).value;
+        if (d == null || !mounted) return;
+        try {
+          final st = await d.client.tellStatus(
+            widget.gid,
+            keys: kTaskDetailTellKeys,
+          );
+          List<Map<String, dynamic>> peers = _peers;
+          final isBt = st['bittorrent'] != null;
+          Map<String, String>? btOpts = _btOptions;
+          if (isBt) {
+            // 仅在 Peers Tab 可见或每 5 轮拉一次 peers，避免常驻刷新拖慢 UI。
+            final peersTabActive = _tabs.index == 2;
+            final shouldFetchPeers =
+                peersTabActive || (_peersTickCounter++ % 5 == 0);
+            if (shouldFetchPeers) {
+              try {
+                peers = await d.client.getPeers(widget.gid);
+              } catch (_) {
+                peers = [];
+              }
+            }
+            // 选项几乎不变，首次加载后只在手动刷新时重拉。
+            if (!_btOptionsLoaded) {
+              try {
+                btOpts = await d.client.getOption(widget.gid);
+                _btOptionsLoaded = true;
+              } catch (_) {
+                // 保留上一轮选项，避免界面闪烁
+              }
+            }
+          } else {
             peers = [];
+            btOpts = null;
+            _btOptionsLoaded = false;
           }
-          try {
-            btOpts = await d.client.getOption(widget.gid);
-          } catch (_) {
-            // 保留上一轮选项，避免界面闪烁
+          if (!mounted) return;
+          final status = '${st['status'] ?? ''}';
+          if (status != _pollStatusKey) {
+            _restartPollTimer(status);
           }
-        } else {
-          peers = [];
-          btOpts = null;
-        }
-        if (!mounted) return;
-        final status = '${st['status'] ?? ''}';
-        if (status != _pollStatusKey) {
-          _restartPollTimer(status);
-        }
-        setState(() {
-          _status = st;
-          _peers = peers;
-          _btOptions = btOpts;
-          _error = null;
-          _peersTried = true;
-        });
-      } catch (e) {
-        if (mounted) {
           setState(() {
-            _error = '$e';
-            _status = null;
-            _btOptions = null;
+            _status = st;
+            _peers = peers;
+            _btOptions = btOpts;
+            _error = null;
+            _peersTried = true;
           });
+        } catch (e) {
+          if (mounted) {
+            setState(() {
+              _error = '$e';
+              _status = null;
+              _btOptions = null;
+            });
+          }
         }
+      } finally {
+        _loadInFlight = false;
       }
     });
   }

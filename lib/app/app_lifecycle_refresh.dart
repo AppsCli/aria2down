@@ -1,6 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/platform_hints.dart';
+import '../providers/app_background_provider.dart';
 import '../providers/task_refresh_provider.dart';
 
 /// 应用从后台恢复时刷新任务列表。
@@ -30,7 +32,17 @@ class _AppLifecycleRefreshState extends ConsumerState<AppLifecycleRefresh>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (isMobilePlatform) {
+      final inBackground =
+          state == AppLifecycleState.paused ||
+          state == AppLifecycleState.inactive ||
+          state == AppLifecycleState.detached;
+      ref.read(appInBackgroundProvider.notifier).state = inBackground;
+    }
     if (state == AppLifecycleState.resumed) {
+      if (isMobilePlatform) {
+        ref.read(appInBackgroundProvider.notifier).state = false;
+      }
       ref.read(taskRefreshSignalProvider.notifier).state++;
     }
   }
