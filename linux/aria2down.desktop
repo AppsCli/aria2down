@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=aria2down
+Comment=Cross-platform download client powered by aria2
+GenericName=Download Manager
+Exec=aria2down %U
+TryExec=aria2down
+Icon=aria2down
+Terminal=false
+Categories=Network;FileTransfer;
+Keywords=download;aria2;bittorrent;magnet;
+StartupNotify=true
+# 外部唤起：自定义 scheme、磁力链、torrent / metalink 文件。
+MimeType=x-scheme-handler/aria2down;x-scheme-handler/magnet;application/x-bittorrent;application/metalink+xml;application/metalink4+xml;

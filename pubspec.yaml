@@ -29,6 +29,7 @@ dependencies:
   launch_at_startup: ^0.3.1
   url_launcher: ^6.3.1
   ffi: ^2.1.0
+  app_links: ^6.4.1
   aria2_native:
     path: packages/aria2_native
 
@@ -46,6 +47,10 @@ msix_config:
   msix_version: 0.1.0.0
   logo_path: assets/tray/tray.png
   capabilities: internetClient
+  # 注册外部唤起协议：自定义 scheme + magnet。Windows 在打包(MSIX)模式下生效。
+  protocol_activation: aria2down, magnet
+  # 文件关联：双击 .torrent / .metalink / .meta4 唤起本应用预填新建任务。
+  file_extension: .torrent, .metalink, .meta4
 
 flutter:
   generate: true

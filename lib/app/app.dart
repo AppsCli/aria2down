@@ -9,6 +9,7 @@ import 'app_lifecycle_refresh.dart';
 import 'daemon_error_screen.dart';
 import 'desktop_integration.dart';
 import 'desktop_shortcuts.dart';
+import 'incoming_link_listener.dart';
 import 'router.dart';
 import 'theme.dart';
 
@@ -98,10 +99,13 @@ class Aria2downApp extends ConsumerWidget {
                 supportedLocales: AppLocalizations.supportedLocales,
                 routerConfig: router,
                 builder: (context, child) {
-                  return DesktopShortcuts(
-                    onOpenSettings: () => router.go('/settings'),
-                    onOpenAdd: () => router.go('/add'),
-                    child: child ?? const SizedBox.shrink(),
+                  return IncomingLinkListener(
+                    router: router,
+                    child: DesktopShortcuts(
+                      onOpenSettings: () => router.go('/settings'),
+                      onOpenAdd: () => router.go('/add'),
+                      child: child ?? const SizedBox.shrink(),
+                    ),
                   );
                 },
               ),

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/incoming_link.dart';
 import '../../core/picked_file_bytes.dart';
 import '../../core/platform_hints.dart';
 import '../../core/queue_uris.dart';
@@ -15,6 +16,7 @@ import '../../core/torrent_metainfo.dart';
 import '../../core/uri_utils.dart';
 import '../../providers/app_settings_provider.dart';
 import '../../providers/aria2_daemon_provider.dart';
+import '../../providers/pending_payload_provider.dart';
 
 class AddTaskPage extends ConsumerStatefulWidget {
   const AddTaskPage({super.key, this.initialUris = const []});
@@ -38,6 +40,72 @@ class _AddTaskPageState extends ConsumerState<AddTaskPage> {
     super.initState();
     if (widget.initialUris.isNotEmpty) {
       _urlCtrl.text = widget.initialUris.join('\n');
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _drainPendingFile());
+  }
+
+  @override
+  void didUpdateWidget(covariant AddTaskPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.initialUris.isNotEmpty &&
+        !_listEquals(widget.initialUris, oldWidget.initialUris)) {
+      _urlCtrl.text = widget.initialUris.join('\n');
+    }
+  }
+
+  bool _listEquals(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// 消费外部唤起投递的 .torrent / .metalink 字节，直接调用 aria2 RPC。
+  Future<void> _drainPendingFile() async {
+    if (!mounted) return;
+    final pending = ref.read(pendingIncomingFileProvider.notifier).consume();
+    if (pending == null) return;
+    final l10n = AppLocalizations.of(context)!;
+    final d = ref.read(aria2DaemonProvider).value;
+    if (d == null) {
+      ref.read(pendingIncomingFileProvider.notifier).offer(pending);
+      return;
+    }
+    final opts = _buildRpcOptions();
+    try {
+      final b64 = base64Encode(pending.bytes);
+      if (pending.kind == IncomingFileKind.torrent) {
+        Set<int>? selected;
+        try {
+          final entries = parseTorrentFileList(pending.bytes);
+          if (entries.length > 1 && mounted) {
+            selected = await showDialog<Set<int>>(
+              context: context,
+              builder: (ctx) => _TorrentFilesDialog(entries: entries),
+            );
+            if (selected == null) return;
+            if (selected.isEmpty) return;
+            if (selected.length < entries.length) {
+              opts['select-file'] = (selected.toList()..sort()).join(',');
+            }
+          }
+        } catch (_) {}
+        await d.client.addTorrent(b64, options: opts.isEmpty ? null : opts);
+      } else {
+        await d.client.addMetalink(b64, options: opts.isEmpty ? null : opts);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l10n.snackAdded)));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(formatRpcError(l10n, e))));
+      }
     }
   }
 
@@ -326,6 +394,13 @@ class _AddTaskPageState extends ConsumerState<AddTaskPage> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final mobile = isMobilePlatform;
+    ref.listen<PendingFilePayload?>(pendingIncomingFileProvider, (prev, next) {
+      if (next != null) {
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _drainPendingFile(),
+        );
+      }
+    });
     final urlField = TextField(
       controller: _urlCtrl,
       decoration: InputDecoration(

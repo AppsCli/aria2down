@@ -3,6 +3,7 @@ package cloud.iothub.aria2down
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -35,6 +36,58 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // 外部唤起：从 content:// 读取字节 (.torrent / .metalink)，回传 ByteArray。
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "cloud.iothub.aria2down/incoming_link",
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "readContent" -> {
+                    val uriStr = call.argument<String>("uri")
+                    if (uriStr == null) {
+                        result.error("ARG", "missing uri", null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        val uri = Uri.parse(uriStr)
+                        val bytes = contentResolver.openInputStream(uri)?.use {
+                            it.readBytes()
+                        }
+                        if (bytes == null) {
+                            result.error("IO", "openInputStream returned null", null)
+                        } else {
+                            result.success(bytes)
+                        }
+                    } catch (e: Exception) {
+                        result.error("IO", e.message ?: e.javaClass.simpleName, null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    // ACTION_SEND 的 text 不会被 app_links 视作 deep link；把它包装成
+    // aria2down:// scheme 后回写到 intent，app_links 自然能接到。
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        normalizeSendIntent(intent)
+        super.onCreate(savedInstanceState)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        normalizeSendIntent(intent)
+        super.onNewIntent(intent)
+    }
+
+    private fun normalizeSendIntent(intent: Intent?) {
+        if (intent == null) return
+        if (intent.action != Intent.ACTION_SEND) return
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
+        if (text.isBlank()) return
+        val encoded = Uri.encode(text)
+        intent.action = Intent.ACTION_VIEW
+        intent.data = Uri.parse("aria2down://add?uri=$encoded")
     }
 
     private fun ensureNotificationPermission() {

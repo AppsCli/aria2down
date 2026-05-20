@@ -19,7 +19,8 @@ flutter test
 - **库引擎**：`packages/aria2_native/` 是独立 FFI 插件（`src/aria2_ffi.{h,cc}` + Dart 绑定）；`lib/aria2/daemon/library_daemon.dart` + `lib/aria2/client/in_process_transport.dart` 桥接到 `Aria2Client`。
 - **RPC**：`lib/aria2/client/aria2_client.dart`；列表轮询使用 `lib/core/task_list_keys.dart` 的 `keys` 减负。
 - **入队**：`lib/core/queue_uris.dart`（去重 + `addUri`）；错误文案 `lib/core/rpc_error_message.dart`。
-- **路由**：`lib/app/router.dart` — `/tasks`、`/add?uri=`、`/settings`；深链见 [docs/DEEPLINKS.md](docs/DEEPLINKS.md)。
+- **路由**：`lib/app/router.dart` — `/tasks`、`/add?uri=`、`/settings`；应用内深链与外部唤起（`aria2down://`、`magnet:`、`.torrent` 文件关联、Android 分享菜单）见 [docs/DEEPLINKS.md](docs/DEEPLINKS.md)。
+- **外部唤起派发**：`lib/core/incoming_link.dart` 解析 → `lib/app/incoming_link_listener.dart` 经 `app_links` 投递 → 路由 `/add?uri=…`；`.torrent`/`.metalink` 字节通过 `incoming_file_loader.dart`（含 Android `content://` 的 Kotlin MethodChannel）读取后由 `pendingIncomingFileProvider` 缓冲，AddTaskPage 自动 `addTorrent` / `addMetalink`。
 - **规划**：`PLAN.md` WBS；用户可见变更同步 `CHANGELOG.md` [Unreleased]；架构决策见 `docs/ARCHITECTURE.md` ADR 表（当前最新 ADR-008）。
 
 ## 修改约定

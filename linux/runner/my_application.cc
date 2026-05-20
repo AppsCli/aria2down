@@ -17,6 +17,15 @@ G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
+
+  // 已存在窗口时聚焦它（单实例），新的 deep link 会通过
+  // command_line / open 钩子由 app_links 派发到 Dart 端。
+  GList* windows = gtk_application_get_windows(GTK_APPLICATION(application));
+  if (windows) {
+    gtk_window_present(GTK_WINDOW(windows->data));
+    return;
+  }
+
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
@@ -78,7 +87,9 @@ static gboolean my_application_local_command_line(GApplication* application, gch
   g_application_activate(application);
   *exit_status = 0;
 
-  return TRUE;
+  // 返回 FALSE 让 GApplication 继续处理 G_APPLICATION_HANDLES_OPEN，
+  // 把 file:// / x-scheme-handler 参数转发到 app_links 插件。
+  return FALSE;
 }
 
 // Implements GApplication::startup.
@@ -125,6 +136,6 @@ MyApplication* my_application_new() {
 
   return MY_APPLICATION(g_object_new(my_application_get_type(),
                                      "application-id", APPLICATION_ID,
-                                     "flags", G_APPLICATION_NON_UNIQUE,
+                                     "flags", G_APPLICATION_HANDLES_COMMAND_LINE | G_APPLICATION_HANDLES_OPEN,
                                      nullptr));
 }

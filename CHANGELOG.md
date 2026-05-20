@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+### 新增（外部唤起 / 跨平台 deep link）
+
+- **`aria2down://` 自定义 Scheme**：所有原生平台统一接口（`aria2down://add?uri=…&uris=…&url=…`、`aria2down://magnet?xt=…`），任意浏览器 / 扩展 / 桌面快捷方式均可唤起本应用并预填新建任务。
+- **系统级处理器注册**：
+  - **Android**：`intent-filter` 注册 `aria2down`、`magnet`、`.torrent`、`.metalink/.meta4` 与 `ACTION_SEND text/plain` 分享菜单；新增 `cloud.iothub.aria2down/incoming_link` MethodChannel 从 `content://` 读取 torrent 字节；按 app_links 要求关闭 Flutter 内建 deep linking。
+  - **iOS / macOS**：`Info.plist` 增加 `CFBundleURLTypes`（`aria2down`、`magnet`）、`CFBundleDocumentTypes` 与 `UTImportedTypeDeclarations`（`.torrent` / `.metalink`，`LSHandlerRank=Alternate` 不抢默认）。
+  - **Linux**：`linux/runner/my_application.cc` 改为单实例 + `G_APPLICATION_HANDLES_OPEN`，新增 `linux/aria2down.desktop` 模板，`MimeType=` 注册 `x-scheme-handler/aria2down`、`x-scheme-handler/magnet`、`application/x-bittorrent`、`application/metalink+xml`。
+  - **Windows**：`windows/runner/main.cpp` 接入 app_links `SendAppLinkToInstance`，已存在窗口时把 deep link 转发给主实例；`msix_config` 增加 `protocol_activation: aria2down, magnet` 与 `file_extension: .torrent, .metalink, .meta4`。
+- **Dart 派发链路**：
+  - `lib/core/incoming_link.dart`：纯函数解析 URI / 分享文本，输出 `IncomingUris` / `IncomingFile` / `IncomingUnknown` 三态。
+  - `lib/core/incoming_file_loader.dart`：兼容 `file://` 与 Android `content://`（通过 MethodChannel）读取本地字节。
+  - `lib/providers/pending_payload_provider.dart`：缓冲未消费的 torrent / metalink 字节，AddTaskPage 首次构建时自动 `addTorrent` / `addMetalink`，多文件 torrent 沿用现有选择对话框。
+  - `lib/app/incoming_link_listener.dart`：基于 `app_links` 的 `uriLinkStream` + `getInitialLink` 监听器，挂在 `MaterialApp.router` 之下；路由至 `/add?uri=…` 复用现有预填。
+- **依赖**：`app_links: ^6.4.1`。
+- **测试**：新增 `test/core/incoming_link_test.dart`（15 用例，覆盖 scheme / magnet / file / content / 分享文本 / 备选键 / 兜底）。
+- **文档**：[docs/DEEPLINKS.md](docs/DEEPLINKS.md) 重写为「应用内深链 + 外部唤起」综合手册，含各平台配置、测试命令与浏览器扩展关系说明。
+
 ### 重大变更
 
 - **默认下载引擎切换为内嵌 libaria2（ADR-007）**：macOS / Linux / Windows / Android / iOS 五个原生平台均通过 Dart FFI 在应用进程内运行 aria2，下载更快启动、不再依赖随包发布的 `aria2c` 二进制。
