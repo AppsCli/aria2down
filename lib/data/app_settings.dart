@@ -30,6 +30,8 @@ class AppSettings {
     this.closeToTray = true,
     this.minimizeToTray = false,
     this.launchAtStartup = false,
+    this.startMinimized = false,
+    this.keepAliveInBackground = true,
     this.maxConcurrentDownloads,
     this.maxConnectionPerServer,
     this.globalDownloadLimit,
@@ -50,6 +52,15 @@ class AppSettings {
   final bool closeToTray;
   final bool minimizeToTray;
   final bool launchAtStartup;
+
+  /// 桌面：登录后自动启动应用时，是否直接隐藏到托盘而不显示主窗口。
+  /// 仅当 [launchAtStartup] 同时启用时生效；用户手动启动也会沿用此设置。
+  final bool startMinimized;
+
+  /// 移动端：在系统后台运行时是否保持前台服务（Android）/ 长时后台任务（iOS）。
+  /// 关闭后下载随应用进入后台被系统挂起。
+  final bool keepAliveInBackground;
+
   final int? maxConcurrentDownloads;
   final int? maxConnectionPerServer;
   final String? globalDownloadLimit;
@@ -87,6 +98,8 @@ class AppSettings {
     bool? closeToTray,
     bool? minimizeToTray,
     bool? launchAtStartup,
+    bool? startMinimized,
+    bool? keepAliveInBackground,
     int? maxConcurrentDownloads,
     bool clearMaxConcurrentDownloads = false,
     int? maxConnectionPerServer,
@@ -117,6 +130,9 @@ class AppSettings {
       closeToTray: closeToTray ?? this.closeToTray,
       minimizeToTray: minimizeToTray ?? this.minimizeToTray,
       launchAtStartup: launchAtStartup ?? this.launchAtStartup,
+      startMinimized: startMinimized ?? this.startMinimized,
+      keepAliveInBackground:
+          keepAliveInBackground ?? this.keepAliveInBackground,
       maxConcurrentDownloads: clearMaxConcurrentDownloads
           ? null
           : (maxConcurrentDownloads ?? this.maxConcurrentDownloads),

@@ -264,6 +264,26 @@
   "trayShowWindow": "Show window",
   "trayQuit": "Quit",
   "trayToolTip": "aria2down — click to show",
+  "trayNewTask": "New download…",
+  "trayPauseAll": "Pause all",
+  "trayResumeAll": "Resume all",
+  "trayOpenDownloads": "Open downloads folder",
+  "trayToolTipStats": "aria2down\n↓ {down}  ↑ {up}\nactive {active} · waiting {waiting}",
+  "@trayToolTipStats": {
+    "placeholders": {
+      "down": {"type": "String"},
+      "up": {"type": "String"},
+      "active": {"type": "int"},
+      "waiting": {"type": "int"}
+    }
+  },
+  "startMinimized": "Start hidden in tray",
+  "startMinimizedDesc": "Launch directly into the system tray instead of showing the main window. Pairs well with “Launch at login”.",
+  "keepAliveInBackground": "Keep downloads alive in background",
+  "keepAliveInBackgroundDesc": "Android: persistent foreground service notification so the OS keeps the daemon running. iOS: request limited background execution time. When off, downloads may be paused once the app is suspended.",
+  "keepAliveTitle": "aria2down is downloading in the background",
+  "notifPauseAllDone": "Requested pause-all",
+  "notifResumeAllDone": "Requested resume-all",
   "tasksBatchMenu": "Batch actions",
   "batchPauseAll": "Pause all",
   "batchForcePauseAll": "Force pause all",

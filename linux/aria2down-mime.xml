@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  aria2down 自定义 MIME 类型注册（freedesktop shared-mime-info 格式）。
+
+  说明：
+  - application/x-bittorrent（.torrent）在多数发行版的 shared-mime-info 中
+    已是标准类型，这里不重复声明。
+  - Metalink 在部分发行版（尤其精简桌面、Alpine、容器）默认没有 MIME 条目，
+    导致双击 .metalink / .meta4 时无法路由到 aria2down，这里显式声明。
+  - 安装到 /usr/share/mime/packages/ 或 ~/.local/share/mime/packages/ 后
+    需运行 update-mime-database 让 xdg 生效。
+-->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/metalink+xml">
+    <comment>Metalink download description</comment>
+    <comment xml:lang="zh-CN">Metalink 下载描述文件</comment>
+    <sub-class-of type="application/xml"/>
+    <glob pattern="*.metalink"/>
+    <magic priority="50">
+      <match value="&lt;metalink" type="string" offset="0:256"/>
+    </magic>
+  </mime-type>
+  <mime-type type="application/metalink4+xml">
+    <comment>Metalink 4 download description</comment>
+    <comment xml:lang="zh-CN">Metalink 4 下载描述文件</comment>
+    <sub-class-of type="application/xml"/>
+    <glob pattern="*.meta4"/>
+    <magic priority="50">
+      <match value="&lt;metalink xmlns=&quot;urn:ietf:params:xml:ns:metalink&quot;" type="string" offset="0:256"/>
+    </magic>
+  </mime-type>
+</mime-info>

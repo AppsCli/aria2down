@@ -86,7 +86,7 @@ package_macos() {
 }
 
 package_linux_appimage() {
-  local bundle appdir out
+  local bundle appdir out desktop_src mime_src icon_src
   bundle="$1"
   if ! command -v appimagetool >/dev/null 2>&1; then
     echo "跳过 AppImage：未找到 appimagetool（可选）。" >&2
@@ -94,23 +94,45 @@ package_linux_appimage() {
   fi
   appdir="build/dist/aria2down.AppDir"
   out="build/dist/aria2down-linux-${VER}.AppImage"
+  desktop_src="$ROOT/linux/aria2down.desktop"
+  mime_src="$ROOT/linux/aria2down-mime.xml"
+
   rm -rf "$appdir" "$out"
-  mkdir -p "$appdir/usr/bin"
+  mkdir -p \
+    "$appdir/usr/bin" \
+    "$appdir/usr/share/applications" \
+    "$appdir/usr/share/mime/packages" \
+    "$appdir/usr/share/icons/hicolor/256x256/apps"
   cp -a "$bundle"/. "$appdir/usr/bin/"
+
   cat >"$appdir/AppRun" <<'EOF'
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "$0")")"
+export LD_LIBRARY_PATH="$HERE/usr/bin/lib:${LD_LIBRARY_PATH-}"
 exec "$HERE/usr/bin/aria2down" "$@"
 EOF
   chmod +x "$appdir/AppRun"
-  cat >"$appdir/aria2down.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=aria2down
-Exec=aria2down
-Icon=aria2down
-Categories=Network;FileTransfer;
-EOF
+
+  # 复用仓库内完整 .desktop（含 MimeType=），同时放到 AppDir 根（appimagetool 要求）
+  # 与 usr/share/applications/（让 AppImageLauncher / 部分集成把 MIME 注册到系统）。
+  cp -f "$desktop_src" "$appdir/aria2down.desktop"
+  cp -f "$desktop_src" "$appdir/usr/share/applications/aria2down.desktop"
+  if [[ -f "$mime_src" ]]; then
+    cp -f "$mime_src" "$appdir/usr/share/mime/packages/aria2down.xml"
+  fi
+
+  # 图标：appimagetool 需要 .DirIcon 与同名 png/svg。若仓库内无 256x256 PNG，
+  # 退化使用 assets/tray/tray.png（小图也能用，但只用于 AppImage 缺省图标）。
+  icon_src="$ROOT/linux/icons/256x256/aria2down.png"
+  if [[ ! -f "$icon_src" ]]; then
+    icon_src="$ROOT/assets/tray/tray.png"
+  fi
+  if [[ -f "$icon_src" ]]; then
+    cp -f "$icon_src" "$appdir/aria2down.png"
+    cp -f "$icon_src" "$appdir/usr/share/icons/hicolor/256x256/apps/aria2down.png"
+    cp -f "$icon_src" "$appdir/.DirIcon"
+  fi
+
   appimagetool "$appdir" "$out"
   echo "已生成: $out"
 }

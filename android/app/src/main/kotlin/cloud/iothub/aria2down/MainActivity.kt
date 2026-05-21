@@ -5,23 +5,66 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var controlSink: EventChannel.EventSink? = null
+    private var pendingControl: String? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "cloud.iothub.aria2down/keep_alive",
         ).setMethodCallHandler { call, result ->
             when (call.method) {
-                "start" -> {
+                "start", "update" -> {
                     ensureNotificationPermission()
-                    val intent = Intent(this, Aria2KeepAliveService::class.java)
+                    val intent = Intent(this, Aria2KeepAliveService::class.java).apply {
+                        action = if (call.method == "start") {
+                            Aria2KeepAliveService.ACTION_START
+                        } else {
+                            Aria2KeepAliveService.ACTION_UPDATE
+                        }
+                        putExtra(
+                            Aria2KeepAliveService.EXTRA_DOWN_SPEED,
+                            (call.argument<Number>("downSpeed") ?: 0).toLong(),
+                        )
+                        putExtra(
+                            Aria2KeepAliveService.EXTRA_UP_SPEED,
+                            (call.argument<Number>("upSpeed") ?: 0).toLong(),
+                        )
+                        putExtra(
+                            Aria2KeepAliveService.EXTRA_ACTIVE,
+                            (call.argument<Number>("active") ?: 0).toInt(),
+                        )
+                        putExtra(
+                            Aria2KeepAliveService.EXTRA_WAITING,
+                            (call.argument<Number>("waiting") ?: 0).toInt(),
+                        )
+                        call.argument<String>("title")?.let {
+                            putExtra(Aria2KeepAliveService.EXTRA_TITLE, it)
+                        }
+                        call.argument<String>("labelShow")?.let {
+                            putExtra(Aria2KeepAliveService.EXTRA_LABEL_SHOW, it)
+                        }
+                        call.argument<String>("labelPause")?.let {
+                            putExtra(Aria2KeepAliveService.EXTRA_LABEL_PAUSE, it)
+                        }
+                        call.argument<String>("labelResume")?.let {
+                            putExtra(Aria2KeepAliveService.EXTRA_LABEL_RESUME, it)
+                        }
+                        call.argument<String>("labelQuit")?.let {
+                            putExtra(Aria2KeepAliveService.EXTRA_LABEL_QUIT, it)
+                        }
+                    }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         startForegroundService(intent)
                     } else {
@@ -37,7 +80,26 @@ class MainActivity : FlutterActivity() {
             }
         }
 
-        // 外部唤起：从 content:// 读取字节 (.torrent / .metalink)，回传 ByteArray。
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "cloud.iothub.aria2down/keep_alive_control",
+        ).setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    controlSink = events
+                    val pending = pendingControl
+                    if (pending != null && events != null) {
+                        events.success(pending)
+                        pendingControl = null
+                    }
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    controlSink = null
+                }
+            },
+        )
+
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "cloud.iothub.aria2down/incoming_link",
@@ -68,16 +130,34 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // ACTION_SEND 的 text 不会被 app_links 视作 deep link；把它包装成
-    // aria2down:// scheme 后回写到 intent，app_links 自然能接到。
-    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+    override fun onCreate(savedInstanceState: Bundle?) {
         normalizeSendIntent(intent)
         super.onCreate(savedInstanceState)
+        handleControlIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
         normalizeSendIntent(intent)
         super.onNewIntent(intent)
+        handleControlIntent(intent)
+    }
+
+    private fun handleControlIntent(intent: Intent?) {
+        val action = intent?.action ?: return
+        val control = when (action) {
+            Aria2KeepAliveService.ACTION_PAUSE_ALL -> "pause_all"
+            Aria2KeepAliveService.ACTION_RESUME_ALL -> "resume_all"
+            Aria2KeepAliveService.ACTION_SHOW_WINDOW -> "show_window"
+            else -> return
+        }
+        // 控制信号被消费一次后清除，避免下次进入 Activity 再次触发。
+        intent.action = Intent.ACTION_MAIN
+        val sink = controlSink
+        if (sink != null) {
+            sink.success(control)
+        } else {
+            pendingControl = control
+        }
     }
 
     private fun normalizeSendIntent(intent: Intent?) {

@@ -594,6 +594,46 @@ class AppLocalizationsEn extends AppLocalizations {
   String get trayToolTip => 'aria2down — click to show';
 
   @override
+  String get trayNewTask => 'New download…';
+
+  @override
+  String get trayPauseAll => 'Pause all';
+
+  @override
+  String get trayResumeAll => 'Resume all';
+
+  @override
+  String get trayOpenDownloads => 'Open downloads folder';
+
+  @override
+  String trayToolTipStats(String down, String up, int active, int waiting) {
+    return 'aria2down\n↓ $down  ↑ $up\nactive $active · waiting $waiting';
+  }
+
+  @override
+  String get startMinimized => 'Start hidden in tray';
+
+  @override
+  String get startMinimizedDesc =>
+      'Launch directly into the system tray instead of showing the main window. Pairs well with “Launch at login”.';
+
+  @override
+  String get keepAliveInBackground => 'Keep downloads alive in background';
+
+  @override
+  String get keepAliveInBackgroundDesc =>
+      'Android: persistent foreground service notification so the OS keeps the daemon running. iOS: request limited background execution time. When off, downloads may be paused once the app is suspended.';
+
+  @override
+  String get keepAliveTitle => 'aria2down is downloading in the background';
+
+  @override
+  String get notifPauseAllDone => 'Requested pause-all';
+
+  @override
+  String get notifResumeAllDone => 'Requested resume-all';
+
+  @override
   String get tasksBatchMenu => 'Batch actions';
 
   @override

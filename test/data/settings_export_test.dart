@@ -12,6 +12,8 @@ void main() {
       globalDownloadLimit: '2M',
       closeToTray: false,
       launchAtStartup: true,
+      startMinimized: true,
+      keepAliveInBackground: false,
     );
     final json = SettingsExport.toJson(original);
     expect(json['appVersion'], isNotNull);
@@ -23,5 +25,16 @@ void main() {
     expect(restored.globalDownloadLimit, '2M');
     expect(restored.closeToTray, false);
     expect(restored.launchAtStartup, true);
+    expect(restored.startMinimized, true);
+    expect(restored.keepAliveInBackground, false);
+  });
+
+  test('defaults: startMinimized=false / keepAliveInBackground=true', () {
+    final restored = SettingsExport.fromJson(<String, dynamic>{
+      'version': 1,
+      'settings': <String, dynamic>{},
+    });
+    expect(restored.startMinimized, false);
+    expect(restored.keepAliveInBackground, true);
   });
 }

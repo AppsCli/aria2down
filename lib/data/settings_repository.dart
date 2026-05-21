@@ -17,6 +17,8 @@ abstract final class SettingsKeys {
   static const closeToTray = 'settings.close_to_tray';
   static const minimizeToTray = 'settings.minimize_to_tray';
   static const launchAtStartup = 'settings.launch_at_startup';
+  static const startMinimized = 'settings.start_minimized';
+  static const keepAliveInBackground = 'settings.keep_alive_in_background';
   static const maxConcurrent = 'settings.max_concurrent_downloads';
   static const maxConnPerServer = 'settings.max_connection_per_server';
   static const globalDownloadLimit = 'settings.global_download_limit';
@@ -46,6 +48,9 @@ final class SettingsRepository {
       closeToTray: p.getBool(SettingsKeys.closeToTray) ?? true,
       minimizeToTray: p.getBool(SettingsKeys.minimizeToTray) ?? false,
       launchAtStartup: p.getBool(SettingsKeys.launchAtStartup) ?? false,
+      startMinimized: p.getBool(SettingsKeys.startMinimized) ?? false,
+      keepAliveInBackground:
+          p.getBool(SettingsKeys.keepAliveInBackground) ?? true,
       maxConcurrentDownloads: p.getInt(SettingsKeys.maxConcurrent),
       maxConnectionPerServer: p.getInt(SettingsKeys.maxConnPerServer),
       globalDownloadLimit: p.getString(SettingsKeys.globalDownloadLimit),
@@ -68,6 +73,8 @@ final class SettingsRepository {
       SettingsKeys.closeToTray,
       SettingsKeys.minimizeToTray,
       SettingsKeys.launchAtStartup,
+      SettingsKeys.startMinimized,
+      SettingsKeys.keepAliveInBackground,
       SettingsKeys.maxConcurrent,
       SettingsKeys.maxConnPerServer,
       SettingsKeys.globalDownloadLimit,
@@ -95,6 +102,11 @@ final class SettingsRepository {
     await p.setBool(SettingsKeys.closeToTray, s.closeToTray);
     await p.setBool(SettingsKeys.minimizeToTray, s.minimizeToTray);
     await p.setBool(SettingsKeys.launchAtStartup, s.launchAtStartup);
+    await p.setBool(SettingsKeys.startMinimized, s.startMinimized);
+    await p.setBool(
+      SettingsKeys.keepAliveInBackground,
+      s.keepAliveInBackground,
+    );
     await _setIntOrRemove(
       p,
       SettingsKeys.maxConcurrent,

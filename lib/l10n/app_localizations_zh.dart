@@ -576,6 +576,45 @@ class AppLocalizationsZh extends AppLocalizations {
   String get trayToolTip => 'aria2down — 点击显示窗口';
 
   @override
+  String get trayNewTask => '新建下载…';
+
+  @override
+  String get trayPauseAll => '全部暂停';
+
+  @override
+  String get trayResumeAll => '全部继续';
+
+  @override
+  String get trayOpenDownloads => '打开下载目录';
+
+  @override
+  String trayToolTipStats(String down, String up, int active, int waiting) {
+    return 'aria2down\n↓ $down  ↑ $up\n活动 $active · 等待 $waiting';
+  }
+
+  @override
+  String get startMinimized => '启动时隐藏到托盘';
+
+  @override
+  String get startMinimizedDesc => '应用启动后直接最小化到系统托盘，适合配合「开机自启」使用。';
+
+  @override
+  String get keepAliveInBackground => '后台保持下载';
+
+  @override
+  String get keepAliveInBackgroundDesc =>
+      'Android：以前台服务通知保持本机 aria2 运行；iOS：申请有限的后台执行时间。关闭后应用挂起时下载会被系统暂停。';
+
+  @override
+  String get keepAliveTitle => 'aria2down 正在后台下载';
+
+  @override
+  String get notifPauseAllDone => '已请求全部暂停';
+
+  @override
+  String get notifResumeAllDone => '已请求全部继续';
+
+  @override
   String get tasksBatchMenu => '批量操作';
 
   @override

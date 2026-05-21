@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="keep_alive_channel">aria2down daemon</string>
+    <string name="keep_alive_channel">aria2down 后台下载</string>
+    <string name="keep_alive_channel_desc">显示本机 aria2 下载进度，防止系统在后台杀进程</string>
     <string name="keep_alive_title">aria2down</string>
-    <string name="keep_alive_body">Local aria2 is running</string>
+    <string name="keep_alive_body">本机 aria2 正在运行</string>
+    <string name="keep_alive_stats_active">活动 %1$d · 等待 %2$d</string>
 </resources>

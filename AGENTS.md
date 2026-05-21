@@ -21,7 +21,8 @@ flutter test
 - **入队**：`lib/core/queue_uris.dart`（去重 + `addUri`）；错误文案 `lib/core/rpc_error_message.dart`。
 - **路由**：`lib/app/router.dart` — `/tasks`、`/add?uri=`、`/settings`；应用内深链与外部唤起（`aria2down://`、`magnet:`、`.torrent` 文件关联、Android 分享菜单）见 [docs/DEEPLINKS.md](docs/DEEPLINKS.md)。
 - **外部唤起派发**：`lib/core/incoming_link.dart` 解析 → `lib/app/incoming_link_listener.dart` 经 `app_links` 投递 → 路由 `/add?uri=…`；`.torrent`/`.metalink` 字节通过 `incoming_file_loader.dart`（含 Android `content://` 的 Kotlin MethodChannel）读取后由 `pendingIncomingFileProvider` 缓冲，AddTaskPage 自动 `addTorrent` / `addMetalink`。
-- **规划**：`PLAN.md` WBS；用户可见变更同步 `CHANGELOG.md` [Unreleased]；架构决策见 `docs/ARCHITECTURE.md` ADR 表（当前最新 ADR-008）。
+- **规划**：`PLAN.md` WBS；用户可见变更同步 `CHANGELOG.md` [Unreleased]；架构决策见 `docs/ARCHITECTURE.md` ADR 表（当前最新 ADR-009）。
+- **后台/托盘**：桌面 `TrayExitBinding`（[lib/app/tray_exit_binding.dart](lib/app/tray_exit_binding.dart)）+ `desktop_shell_io`（[lib/desktop/desktop_shell_io.dart](lib/desktop/desktop_shell_io.dart)）；移动 `MobileBackgroundBinding`（[lib/app/mobile_background_binding.dart](lib/app/mobile_background_binding.dart)）+ `AndroidKeepAlive`（[lib/core/android_keep_alive.dart](lib/core/android_keep_alive.dart)）；统一数据源 `globalStatStreamProvider`（[lib/providers/global_stat_provider.dart](lib/providers/global_stat_provider.dart)）。daemon 内部禁止直接调平台外壳 API。
 
 ## 修改约定
 

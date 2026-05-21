@@ -38,9 +38,15 @@ class _DesktopIntegrationState extends ConsumerState<DesktopIntegration> {
     final l10n = AppLocalizations.of(context);
     if (l10n != null) {
       updateDesktopTrayLabels(
-        showWindowLabel: l10n.trayShowWindow,
-        exitLabel: l10n.trayQuit,
-        toolTip: l10n.trayToolTip,
+        DesktopTrayLabels(
+          showWindow: l10n.trayShowWindow,
+          newTask: l10n.trayNewTask,
+          pauseAll: l10n.trayPauseAll,
+          resumeAll: l10n.trayResumeAll,
+          openDownloads: l10n.trayOpenDownloads,
+          quit: l10n.trayQuit,
+          toolTip: l10n.trayToolTip,
+        ),
       );
     }
   }

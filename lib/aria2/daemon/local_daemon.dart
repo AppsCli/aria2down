@@ -12,7 +12,6 @@ import '../client/aria2_exceptions.dart';
 import '../client/http_transport.dart';
 import '../client/ws_listener.dart';
 import '../config/aria2_config_builder.dart';
-import '../../core/android_keep_alive.dart';
 import '../../data/app_settings.dart';
 import 'aria2_daemon.dart';
 import 'daemon_state.dart';
@@ -177,7 +176,6 @@ final class LocalDaemon implements Aria2Daemon {
     await _connectWebSocket();
 
     _state = DaemonState.ready;
-    await AndroidKeepAlive.start();
   }
 
   Future<void> _spawnProcess() async {
@@ -326,7 +324,6 @@ final class LocalDaemon implements Aria2Daemon {
       }
     }
 
-    await AndroidKeepAlive.stop();
     _state = DaemonState.stopped;
   }
 

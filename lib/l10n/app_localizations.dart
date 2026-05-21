@@ -1146,6 +1146,78 @@ abstract class AppLocalizations {
   /// **'aria2down — click to show'**
   String get trayToolTip;
 
+  /// No description provided for @trayNewTask.
+  ///
+  /// In en, this message translates to:
+  /// **'New download…'**
+  String get trayNewTask;
+
+  /// No description provided for @trayPauseAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause all'**
+  String get trayPauseAll;
+
+  /// No description provided for @trayResumeAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Resume all'**
+  String get trayResumeAll;
+
+  /// No description provided for @trayOpenDownloads.
+  ///
+  /// In en, this message translates to:
+  /// **'Open downloads folder'**
+  String get trayOpenDownloads;
+
+  /// No description provided for @trayToolTipStats.
+  ///
+  /// In en, this message translates to:
+  /// **'aria2down\n↓ {down}  ↑ {up}\nactive {active} · waiting {waiting}'**
+  String trayToolTipStats(String down, String up, int active, int waiting);
+
+  /// No description provided for @startMinimized.
+  ///
+  /// In en, this message translates to:
+  /// **'Start hidden in tray'**
+  String get startMinimized;
+
+  /// No description provided for @startMinimizedDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Launch directly into the system tray instead of showing the main window. Pairs well with “Launch at login”.'**
+  String get startMinimizedDesc;
+
+  /// No description provided for @keepAliveInBackground.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep downloads alive in background'**
+  String get keepAliveInBackground;
+
+  /// No description provided for @keepAliveInBackgroundDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Android: persistent foreground service notification so the OS keeps the daemon running. iOS: request limited background execution time. When off, downloads may be paused once the app is suspended.'**
+  String get keepAliveInBackgroundDesc;
+
+  /// No description provided for @keepAliveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'aria2down is downloading in the background'**
+  String get keepAliveTitle;
+
+  /// No description provided for @notifPauseAllDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Requested pause-all'**
+  String get notifPauseAllDone;
+
+  /// No description provided for @notifResumeAllDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Requested resume-all'**
+  String get notifResumeAllDone;
+
   /// No description provided for @tasksBatchMenu.
   ///
   /// In en, this message translates to:

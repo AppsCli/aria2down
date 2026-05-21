@@ -136,6 +136,8 @@ class _SettingsFormState extends State<_SettingsForm> {
   late bool _closeToTray;
   late bool _minimizeToTray;
   late bool _launchAtStartup;
+  late bool _startMinimized;
+  late bool _keepAliveInBackground;
   String? _downloadDir;
   bool _testingRemote = false;
 
@@ -171,6 +173,8 @@ class _SettingsFormState extends State<_SettingsForm> {
     _closeToTray = s.closeToTray;
     _minimizeToTray = s.minimizeToTray;
     _launchAtStartup = s.launchAtStartup;
+    _startMinimized = s.startMinimized;
+    _keepAliveInBackground = s.keepAliveInBackground;
     _downloadDir = s.downloadDirectoryOverride;
   }
 
@@ -216,6 +220,8 @@ class _SettingsFormState extends State<_SettingsForm> {
       closeToTray: _closeToTray,
       minimizeToTray: _minimizeToTray,
       launchAtStartup: _launchAtStartup,
+      startMinimized: _startMinimized,
+      keepAliveInBackground: _keepAliveInBackground,
       maxConcurrentDownloads: parsePositiveInt(_maxConcurrentCtrl.text),
       maxConnectionPerServer: parsePositiveInt(_maxConnCtrl.text),
       globalDownloadLimit: _dlLimitCtrl.text.trim().isEmpty
@@ -506,6 +512,8 @@ class _SettingsFormState extends State<_SettingsForm> {
         _closeToTray = imported.closeToTray;
         _minimizeToTray = imported.minimizeToTray;
         _launchAtStartup = imported.launchAtStartup;
+        _startMinimized = imported.startMinimized;
+        _keepAliveInBackground = imported.keepAliveInBackground;
         _maxConcurrentCtrl.text =
             imported.maxConcurrentDownloads?.toString() ?? '';
         _maxConnCtrl.text = imported.maxConnectionPerServer?.toString() ?? '';
@@ -858,6 +866,23 @@ class _SettingsFormState extends State<_SettingsForm> {
               subtitle: Text(l10n.launchAtStartupDesc),
               value: _launchAtStartup,
               onChanged: (v) => setState(() => _launchAtStartup = v),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(l10n.startMinimized),
+              subtitle: Text(l10n.startMinimizedDesc),
+              value: _startMinimized,
+              onChanged: (v) => setState(() => _startMinimized = v),
+            ),
+          ],
+          if (mobile) ...[
+            const SizedBox(height: 16),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(l10n.keepAliveInBackground),
+              subtitle: Text(l10n.keepAliveInBackgroundDesc),
+              value: _keepAliveInBackground,
+              onChanged: (v) => setState(() => _keepAliveInBackground = v),
             ),
           ],
           const SizedBox(height: 24),

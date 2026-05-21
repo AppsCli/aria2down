@@ -54,9 +54,30 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<!-- 申请后台执行权限：fetch 用于周期性短时唤醒；processing 允许长时
+	     后台任务（由 BGTaskScheduler 调度）。受 iOS 调度策略约束，下载
+	     仍可能在系统挂起期间被暂停。 -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
+	<!-- BGTaskScheduler 注册的后台任务标识，对应
+	     AppDelegate 中的注册回调。 -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>cloud.iothub.aria2down.bgrefresh</string>
+		<string>cloud.iothub.aria2down.bgprocessing</string>
+	</array>
 	<!-- Flutter 3.24+ 必须显式关闭内建 deep linking，由 app_links 接管。 -->
 	<key>FlutterDeepLinkingEnabled</key>
 	<false/>
+	<!-- 让「文件」App / 邮件附件等可以把 .torrent / .metalink 用 aria2down 打开，
+	     而不是先复制到沙盒；同时允许用户在「文件」App 里看到 aria2down 沙盒目录。 -->
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<!-- 自定义 URL Scheme：aria2down:// / magnet:（备选处理器） -->
 	<key>CFBundleURLTypes</key>
 	<array>

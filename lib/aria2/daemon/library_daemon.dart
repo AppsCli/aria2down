@@ -5,7 +5,6 @@ import 'package:aria2_native/aria2_native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import '../../core/android_keep_alive.dart';
 import '../../data/app_settings.dart';
 import '../client/aria2_client.dart';
 import '../client/aria2_exceptions.dart';
@@ -168,7 +167,6 @@ final class LibraryDaemon implements Aria2Daemon {
     _client = Aria2Client(transport: Aria2InProcessTransport(_session!));
 
     _state = DaemonState.ready;
-    await AndroidKeepAlive.start();
   }
 
   @override
@@ -190,7 +188,6 @@ final class LibraryDaemon implements Aria2Daemon {
     }
 
     _client = null;
-    await AndroidKeepAlive.stop();
     _state = DaemonState.stopped;
   }
 

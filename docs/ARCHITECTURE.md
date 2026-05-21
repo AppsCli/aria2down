@@ -462,6 +462,7 @@ CI 跑 `flutter analyze` + `flutter test`；集成测试在本地或自托管 ru
 | ADR-006 | aria2 作为 git submodule（不 fork） | 复制源码 / vendoring | 易于跟随 upstream 更新，体积可控 | 生效 |
 | ADR-007 | **所有原生平台默认内嵌 libaria2（Dart FFI）**；保留子进程作为兜底/调试通道 | 继续 ADR-001 子进程模式 | 进程数 ↓、iOS 沙盒可用、启动时间 ↓、可同步事件 | **生效（默认引擎）** |
 | ADR-008 | libaria2 FFI 全部委派给独立 worker isolate（含事件循环 `run_once`） | 在主 isolate 同步调用 + Timer 驱动 `run_once` | UI 线程不再被 `eventPoll_->poll(refreshInterval=1s)` 阻塞，避免数百毫秒抖动 | **生效** |
+| ADR-009 | 桌面 / Android 后台保活与控制信号集中到 `MobileBackgroundBinding` / `TrayExitBinding`，统一消费 `globalStatStreamProvider` | 各 daemon 自行调用平台 API；UI 页面驱动通知 | 解耦 daemon 与平台外壳；切换页面、首页未打开时托盘 tooltip / 前台服务通知仍能持续刷新；通知按钮可在 Flutter Engine 已初始化的前提下直接控制 aria2 | **生效** |
 
 ### ADR-007：默认改用内嵌 libaria2（Dart FFI）
 
@@ -476,5 +477,17 @@ CI 跑 `flutter analyze` + `flutter test`；集成测试在本地或自托管 ru
 - **依赖**：OpenSSL、c-ares、sqlite3、zlib 等以静态库形式链接，避免运行时依赖。各平台依赖落入 `prebuilt/<...>/deps/*.a`。
 - **包体积**：单平台预估 +6 ~ 12 MB（静态 strip 后）。
 - **取舍**：单进程单 Session 限制由 libaria2 决定（[third_party/aria2/src/includes/aria2/aria2.h](../third_party/aria2/src/includes/aria2/aria2.h) 文档），引擎切换通过 `ref.invalidate(aria2DaemonProvider)` 重建 daemon 实现优雅迁移。
+
+### ADR-009：后台/托盘统一由 binding 层驱动
+
+- **背景**：ADR-001~008 让 daemon 负责进程/库生命周期；早期版本 [`LibraryDaemon`](../lib/aria2/daemon/library_daemon.dart) / [`LocalDaemon`](../lib/aria2/daemon/local_daemon.dart) 直接调用 `AndroidKeepAlive.start/stop`，UI 页面（任务列表）独立轮询 `getGlobalStat`。这带来两个问题：(1) 任务列表页未挂载时，桌面托盘 tooltip 与 Android 前台通知都拿不到实时数据；(2) daemon 抽象渗漏到平台外壳。
+- **决策**：
+  - 新增 [`globalStatStreamProvider`](../lib/providers/global_stat_provider.dart)（独立 1s/5s 自适应轮询，跟随 `appInBackgroundProvider` 立即唤醒），作为「全局统计的唯一来源」。
+  - 桌面：[`TrayExitBinding`](../lib/app/tray_exit_binding.dart) 订阅 `globalStatStreamProvider` 更新托盘 tooltip；注册整套 `DesktopTrayCallbacks`（新建任务 → 路由 `/add`，全部暂停/继续 → `aria2DaemonProvider.future` + `client.pauseAll/unpauseAll`，打开下载目录 → `getGlobalOption.dir` → `revealPathInFileManager`）。
+  - 移动：[`MobileBackgroundBinding`](../lib/app/mobile_background_binding.dart) 在「daemon 就绪 + 本机模式 + `keepAliveInBackground=true`」时调用 [`AndroidKeepAlive.start`](../lib/core/android_keep_alive.dart)，随后每次 `globalStatStreamProvider` 触发都 `update`；同时订阅 `controlEvents`，处理通知按钮信号（`pause_all` / `resume_all` / `show_window`）。
+  - daemon 内部不再耦合 `AndroidKeepAlive`。
+- **Android Service**：[`Aria2KeepAliveService`](../android/app/src/main/kotlin/cloud/iothub/aria2down/Aria2KeepAliveService.kt) 接受 `ACTION_START` / `ACTION_UPDATE` / `ACTION_PAUSE_ALL` / `ACTION_RESUME_ALL` / `ACTION_QUIT`；通知按钮通过 `PendingIntent.getService` 触发，service 收到控制 action 后 `startActivity(MainActivity, action=…)` 把信号转给 Flutter；活跃任务时持 `PARTIAL_WAKE_LOCK`，空闲释放，30 min 兜底超时。
+- **iOS**：[`AppDelegate.swift`](../ios/Runner/AppDelegate.swift) 进入后台时 `beginBackgroundTask` 延长存活并提交 `BGAppRefreshTask` / `BGProcessingTask`；`Info.plist` 声明 `UIBackgroundModes=fetch,processing` 与 `BGTaskSchedulerPermittedIdentifiers`。
+- **静默启动**：[`AppSettings.startMinimized`](../lib/data/app_settings.dart) 在 [`main.dart`](../lib/main.dart) 提前读取，桌面 `initDesktopShell(startMinimized: true)` 立即 `windowManager.hide()`，与 `launchAtStartup` 组合实现「登录即托盘待命」。
 
 > 后续重要决策按 `ADR-NNN` 编号继续追加。

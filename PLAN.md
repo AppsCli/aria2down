@@ -422,7 +422,7 @@ docs/
 | --- | --- | --- |
 | P4-01 | Android NDK 交叉编译 aria2（armeabi-v7a / arm64-v8a / x86_64） | ◐ 进行中（`build_android_aria2_docker.sh` + upstream Dockerfile.android） |
 | P4-02 | 将二进制打包到 `assets/`，运行时拷贝到应用私有目录并赋可执行权限 | ◐ 进行中（`AndroidBinaryExtractor`、`stage_android_aria2.sh`、`assets/android/`；需 NDK 产物） |
-| P4-03 | Android 后台 Service：保持 aria2c 存活 | ◐ 进行中（`Aria2KeepAliveService` + `AndroidKeepAlive`；与 NDK 二进制联调仍待） |
+| P4-03 | Android 后台 Service：保持 aria2c 存活 | ✅ 完成（前台服务 `Aria2KeepAliveService` 动态通知速率/任务数 + 暂停/继续/退出 action + `PARTIAL_WAKE_LOCK`；`MobileBackgroundBinding` 统一驱动 update + 控制信号；与 NDK 二进制联调仍待） |
 | P4-04 | 移动端 UI 适配 | ◐ 进行中（`SafeArea`、平台提示、欢迎对话框；新建/任务列表宽屏约束；默认远程 RPC） |
 | P4-05 | iOS 可行性评估报告 | ✅ 完成（[docs/IOS.md](docs/IOS.md)） |
 | P4-06 | iOS 集成方式确定（静态库 / 远程模式） | ✅ 完成（MVP 推荐 **远程 RPC**，见 IOS.md） |
@@ -435,8 +435,8 @@ docs/
 | P5-01 | 任务详情页：分块/文件/Tracker | ✅ 完成（分块进度条、复制 GID/路径/InfoHash、BT 详情既有能力；单 Tracker 健康仍无 RPC） |
 | P5-07 | 任务历史持久化（drift / isar） | ✅ 完成（JSON 文件 + 历史 Tab + `TaskHistoryRecorder`） |
 | P5-02 | BT 任务文件选择 | ✅ 完成（新建多文件种子：解析 bencode 弹出勾选 + `addTorrent` 传 `select-file`；任务详情页 `changeOption` 调整） |
-| P5-03 | 系统托盘 + 最小化到托盘 | ✅ 完成（`desktop_shell_io` + 设置项 `closeToTray` / `minimizeToTray` + l10n 托盘菜单） |
-| P5-04 | 开机自启 | ✅ 完成（`launch_at_startup` + 设置开关） |
+| P5-03 | 系统托盘 + 最小化到托盘 | ✅ 完成（托盘菜单：显示/新建/全部暂停/全部继续/打开下载目录/退出；动态 tooltip 速率与任务数；右键弹出；设置 `closeToTray` / `minimizeToTray` / `startMinimized`） |
+| P5-04 | 开机自启 | ✅ 完成（`launch_at_startup` + 设置开关；可叠加 `startMinimized` 静默启动） |
 | P5-05 | 远程模式 UI + 实现 `RemoteDaemon` | ✅ 完成（`aria2DaemonProvider`、设置页本机/远程切换） |
 | P5-06 | 配置导入 / 导出 | ✅ 完成（`SettingsExport` JSON + 设置页导入/导出） |
 | P5-08 | 浏览器扩展（v0.4+） | ◐ 进行中（**Test connection**、发送页面/链接、NM 安装脚本；[docs/EXTENSIONS.md](docs/EXTENSIONS.md)） |
@@ -536,6 +536,7 @@ docs/
 
 | 日期 | 作者 | 类型 | 内容 |
 | --- | --- | --- | --- |
+| 2026-05-21 | dev | feat | 全平台后台能力强化：桌面托盘菜单扩展 + 动态速率 tooltip + 启动隐藏；Android 前台服务通知动态化（速率/任务数）+ 通知按钮 pause/resume/quit + WakeLock；iOS BGTaskScheduler + beginBackgroundTask；统一 `globalStatStreamProvider`；新增 `startMinimized` / `keepAliveInBackground` 设置。 |
 | 2026-05-19 | dev | decision | **ADR-007**：所有原生平台默认改用内嵌 libaria2（Dart FFI），子进程作为兜底；新增 `packages/aria2_native` 插件、`LibraryDaemon`、`Aria2InProcessTransport`、引擎切换 UI、`scripts/build_libaria2_*.sh` 与 CI 任务。 |
 | 2026-05-19 | dev | feat | 任务长按菜单（详情/目录/暂停/分享）、列表 errorMessage、RPC 超时映射、设置导入友好错误 |
 | 2026-05-19 | dev | feat | 任务长按菜单、错误 Banner、日志搜索、扩展 Test connection、保存应用下载目录、EXTENSIONS.md |

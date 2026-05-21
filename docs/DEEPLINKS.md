@@ -93,6 +93,7 @@ Dart 辅助函数：
 - `CFBundleURLTypes`：`aria2down` 与 `magnet`（备选）两个 scheme。
 - `CFBundleDocumentTypes` + `UTImportedTypeDeclarations`：声明 `org.bittorrent.torrent`、`application.metalink` 两个 UTI，关联 `.torrent` / `.metalink` / `.meta4`。
 - `LSHandlerRank=Alternate`，不强制成为默认。
+- `LSSupportsOpeningDocumentsInPlace=true` + `UIFileSharingEnabled=true`：允许「文件」App 直接把 `.torrent` 用 aria2down 打开（in-place），并让 aria2down 沙盒目录出现在「文件」App 的「我的 iPhone」分组中，便于在第三方下载客户端之间转移种子文件。
 
 ### macOS (`macos/Runner/Info.plist`)
 
@@ -105,16 +106,32 @@ Dart 辅助函数：
   - 新增 `gtk_application_get_windows` 单实例聚焦逻辑。
   - `local_command_line` 返回 `FALSE`，让 GApplication 继续 dispatch。
   - GApplication flags 改为 `G_APPLICATION_HANDLES_COMMAND_LINE | G_APPLICATION_HANDLES_OPEN`。
-- `linux/aria2down.desktop`（模板）：发行时 install 到 `/usr/share/applications/`。`MimeType=` 注册 `x-scheme-handler/aria2down`、`x-scheme-handler/magnet`、`application/x-bittorrent`、Metalink mime。
-- 安装后用 `xdg-mime default aria2down.desktop x-scheme-handler/magnet` 等命令把 aria2down 设为默认（可选）。
+- `linux/aria2down.desktop`：`MimeType=` 注册 `x-scheme-handler/aria2down`、`x-scheme-handler/magnet`、`application/x-bittorrent`、`application/metalink+xml`、`application/metalink4+xml`。
+- `linux/aria2down-mime.xml`：自定义 shared-mime-info 包，显式声明 Metalink MIME 类型（部分发行版默认未带），含 `*.metalink` / `*.meta4` glob 与 XML magic。
+- **安装到本机**：
+  - 用户级（无需 root）：`./scripts/install_linux_associations.sh --user --bin "$(pwd)/build/linux/x64/release/bundle/aria2down" --set-default`
+  - 系统级（需要 sudo）：`sudo ./scripts/install_linux_associations.sh --bin /opt/aria2down/aria2down --set-default`
+  - `--bin` 会改写 `.desktop` 的 `Exec=` / `TryExec=` 为绝对路径；不指定时使用 `Exec=aria2down`（要求 PATH 里能找到）。
+  - 卸载：`./scripts/uninstall_linux_associations.sh [--user]`
+- AppImage 构建（`scripts/package_desktop.sh`）：使用完整 `linux/aria2down.desktop` + `aria2down-mime.xml`，配合 AppImageLauncher 可自动注册关联。
+- 也可以手动用 `xdg-mime default aria2down.desktop x-scheme-handler/magnet` 等命令逐项指定默认处理器。
 
 ### Windows
 
 - `windows/runner/main.cpp`：在 `wWinMain` 入口调用 `SendAppLinkToInstance(L"aria2down")`，把第二个进程的命令行 deep link 投递给已运行实例并自退出（单实例 + app_links 集成）。
-- `pubspec.yaml#msix_config`：
+- **MSIX 打包发行**（推荐）：`pubspec.yaml#msix_config`
   - `protocol_activation: aria2down, magnet` 注册 URL 协议。
   - `file_extension: .torrent, .metalink, .meta4` 注册文件关联。
-- ⚠️ 协议 / 文件关联只在 **MSIX 安装包** 下生效。未打包的 `flutter run windows` / portable 构建需要另行写注册表（参考 [app_links Windows 文档](https://github.com/llfbandit/app_links/blob/master/doc/README_windows.md)）。
+- **Portable / zip 发行**：MSIX 声明只在 MSIX 安装包里生效，zip 解压版需要另行写注册表。仓库提供 [scripts/register_windows_associations.ps1](../scripts/register_windows_associations.ps1)：
+  ```powershell
+  # 在 portable 解压目录里直接运行（默认用脚本同级 aria2down.exe）：
+  PowerShell -ExecutionPolicy Bypass -File .\scripts\register_windows_associations.ps1
+  # 或显式指定：
+  .\scripts\register_windows_associations.ps1 -ExePath "D:\Apps\aria2down\aria2down.exe"
+  # 卸载：
+  .\scripts\register_windows_associations.ps1 -Unregister
+  ```
+  脚本写入的是 `HKCU\Software\Classes`（当前用户），不需要管理员；用 ProgId 形式（`aria2down.torrent.1` 等）注册 `.torrent` / `.metalink` / `.meta4` 与 `aria2down:` / `magnet:` 两个 URL Protocol；文件扩展只挂 `OpenWithProgids`，不抢系统当前默认（首次双击 Windows 会让用户确认）。
 
 ---
 

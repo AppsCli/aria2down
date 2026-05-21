@@ -4,6 +4,27 @@
 
 ## [Unreleased]
 
+### 新增（全平台后台能力强化）
+
+- **桌面托盘扩展**：托盘菜单从「显示窗口 / 退出」扩展为「显示窗口 / 新建下载… / 全部暂停 / 全部继续 / 打开下载目录 / 退出」；托盘 tooltip 实时显示当前下载/上传速度与活跃/等待任务数；右键弹出菜单、双击/单击托盘图标恢复主窗口。
+- **桌面静默启动**：新增 `AppSettings.startMinimized`，桌面端配合开机自启可在启动时直接最小化到托盘（[lib/main.dart](lib/main.dart) 在显示窗口之前读取 `SettingsRepository`，在 `initDesktopShell` 完成后立即 `hide`）。
+- **Android 前台服务通知动态化**：[Aria2KeepAliveService.kt](android/app/src/main/kotlin/cloud/iothub/aria2down/Aria2KeepAliveService.kt) 支持 `start` / `update` 动作，通知正文实时显示 `↓ down ↑ up  活动 N · 等待 M`；通知按钮提供「显示 / 全部暂停 / 全部继续 / 退出」，点击通知体回到任务列表；活跃任务期间持有 `PARTIAL_WAKE_LOCK`，空闲后释放。
+- **Android 控制信号流**：新增 `cloud.iothub.aria2down/keep_alive_control` EventChannel；通知按钮通过 `MainActivity` 转发 `pause_all` / `resume_all` / `show_window` 到 Flutter，由 [`MobileBackgroundBinding`](lib/app/mobile_background_binding.dart) 调用 `Aria2Client.pauseAll/unpauseAll` 或路由到任务列表。
+- **iOS 后台时间**：[AppDelegate.swift](ios/Runner/AppDelegate.swift) 进入后台时调用 `beginBackgroundTask`，并注册 `BGAppRefreshTask` (`cloud.iothub.aria2down.bgrefresh`) / `BGProcessingTask` (`cloud.iothub.aria2down.bgprocessing`)；[`Info.plist`](ios/Runner/Info.plist) 声明 `UIBackgroundModes=fetch,processing` 与 `BGTaskSchedulerPermittedIdentifiers`。
+- **统一全局统计 Provider**：[`globalStatStreamProvider`](lib/providers/global_stat_provider.dart)（独立 1s/5s 自适应轮询，前后台切换立即唤醒）作为桌面托盘 tooltip、Android 前台通知的唯一数据源，与任务列表页轮询解耦。
+- **移动端后台保活开关**：新增 `AppSettings.keepAliveInBackground`（默认开启）；Android 关闭后立即 `stopService`，iOS 仍保留 BGTask 调度（系统决定是否执行）。
+- **新 l10n 文案**：`trayNewTask / trayPauseAll / trayResumeAll / trayOpenDownloads / trayToolTipStats / startMinimized(+Desc) / keepAliveInBackground(+Desc) / keepAliveTitle / notifPauseAllDone / notifResumeAllDone`，同时修复 `app_zh.arb` 中 `speedGlobalExtended` 的重复 key。
+- **结构变化**：`TrayExitBinding` 迁移到 router 之内并扩展为「桌面托盘所有命令中枢」；新增 [`MobileBackgroundBinding`](lib/app/mobile_background_binding.dart) 负责 Android 通知更新与控制信号订阅；`LibraryDaemon` / `LocalDaemon` 不再直接调 `AndroidKeepAlive`，统一由 binding 根据「daemon 已就绪 + 移动平台 + keepAlive 开关」三件事决策。
+
+### 新增（关联完善 / Linux & Windows portable）
+
+- **Linux 系统级安装脚本**：新增 [scripts/install_linux_associations.sh](scripts/install_linux_associations.sh) 与 [scripts/uninstall_linux_associations.sh](scripts/uninstall_linux_associations.sh)，把 `linux/aria2down.desktop`（含 `MimeType=`）和自定义 MIME XML 安装到 `/usr/share/`（系统级）或 `~/.local/share/`（用户级），并自动调 `update-desktop-database` / `update-mime-database`；可选 `--set-default` 一键把 aria2down 设为 `magnet:` / `.torrent` / `.metalink` / `aria2down://` 的默认处理器。
+- **自定义 MIME 注册**：新增 [linux/aria2down-mime.xml](linux/aria2down-mime.xml)，显式声明 `application/metalink+xml`、`application/metalink4+xml`（部分发行版的 shared-mime-info 默认不带），含 `*.metalink` / `*.meta4` glob 与 XML magic 匹配，确保「双击 .metalink」一定能路由到 aria2down。
+- **AppImage 关联保留**：[scripts/package_desktop.sh](scripts/package_desktop.sh) 的 AppImage 流程改为直接使用仓库内完整 `aria2down.desktop` + `aria2down-mime.xml`（之前 heredoc 生成的精简 desktop 会丢失 MimeType），配合 AppImageLauncher 安装后能自动注册全部关联。
+- **Windows portable 注册表助手**：新增 [scripts/register_windows_associations.ps1](scripts/register_windows_associations.ps1)。MSIX 声明仅对 MSIX 安装包生效，对解压 zip 直接运行的 portable 版无能为力；本脚本以 ProgId 形式（`aria2down.torrent.1` / `.metalink.1` / `.meta4.1`）把 `.torrent` / `.metalink` / `.meta4` 与 `aria2down:` / `magnet:` 两个 URL Protocol 写入 `HKCU\Software\Classes`，无需管理员；文件扩展用 `OpenWithProgids` 不抢系统首选；支持 `-Unregister` 清理。
+- **iOS Files App 集成**：`ios/Runner/Info.plist` 增加 `LSSupportsOpeningDocumentsInPlace=true` 与 `UIFileSharingEnabled=true`，从「文件」App / 邮件附件直接把 `.torrent` 用 aria2down 打开（in-place），同时让 aria2down 沙盒目录出现在「我的 iPhone」分组，便于跨 App 转移种子文件。
+- **文档**：[docs/DEEPLINKS.md](docs/DEEPLINKS.md) 同步更新 Linux 安装脚本用法、Windows portable 关联注册方法与 iOS 「文件」集成说明。
+
 ### 新增（外部唤起 / 跨平台 deep link）
 
 - **`aria2down://` 自定义 Scheme**：所有原生平台统一接口（`aria2down://add?uri=…&uris=…&url=…`、`aria2down://magnet?xt=…`），任意浏览器 / 扩展 / 桌面快捷方式均可唤起本应用并预填新建任务。

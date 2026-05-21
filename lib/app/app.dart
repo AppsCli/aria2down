@@ -10,8 +10,10 @@ import 'daemon_error_screen.dart';
 import 'desktop_integration.dart';
 import 'desktop_shortcuts.dart';
 import 'incoming_link_listener.dart';
+import 'mobile_background_binding.dart';
 import 'router.dart';
 import 'theme.dart';
+import 'tray_exit_binding.dart';
 
 final _routerProvider = Provider<GoRouter>((ref) {
   final r = createAppRouter();
@@ -101,10 +103,16 @@ class Aria2downApp extends ConsumerWidget {
                 builder: (context, child) {
                   return IncomingLinkListener(
                     router: router,
-                    child: DesktopShortcuts(
-                      onOpenSettings: () => router.go('/settings'),
-                      onOpenAdd: () => router.go('/add'),
-                      child: child ?? const SizedBox.shrink(),
+                    child: TrayExitBinding(
+                      router: router,
+                      child: MobileBackgroundBinding(
+                        router: router,
+                        child: DesktopShortcuts(
+                          onOpenSettings: () => router.go('/settings'),
+                          onOpenAdd: () => router.go('/add'),
+                          child: child ?? const SizedBox.shrink(),
+                        ),
+                      ),
                     ),
                   );
                 },
