@@ -75,4 +75,3 @@ flutter:
   assets:
     - assets/icon/app_icon.png
     - assets/tray/tray.png
-    - assets/android/README.md

@@ -18,8 +18,5 @@ String formatRpcError(AppLocalizations l10n, Object error) {
       s.contains('token')) {
     return l10n.rpcErrorUnauthorized;
   }
-  if (s.contains('binary not found') || s.contains('aria2c not found')) {
-    return l10n.daemonErrorBinaryNotFound;
-  }
   return l10n.rpcErrorGeneric(error.toString());
 }

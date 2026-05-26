@@ -2,21 +2,27 @@ import 'package:flutter/material.dart';
 
 import '../core/platform_hints.dart';
 
+/// 应用品牌默认种子色——偏冷的「下载箭头蓝」。
+///
+/// 用户在「设置 → 主题色」里可以覆盖，但默认行为仍是这套品牌色。也用作
+/// 设置页色板的「默认」按钮值，让用户能从自定义色一键还原。
+const Color kDefaultSeedColor = Color(0xFF1565C0);
+
 /// 应用主题。
 ///
 /// 设计原则：
-/// - **Material 3 + seed color**：以品牌色 `#1565C0`（一个偏冷的「下载箭头蓝」）
-///   作为 `ColorScheme.fromSeed` 种子；让 light / dark 自动调色，避免手工维护
-///   两套色板。
+/// - **Material 3 + seed color**：以 [seedColor]（默认 [kDefaultSeedColor]）
+///   作为 `ColorScheme.fromSeed` 种子；让 light / dark 自动调色，避免手工
+///   维护两套色板。用户可在设置页通过预设色板或自定义十六进制覆盖。
 /// - **圆角统一**：Card 16、Dialog 20、Button 12、Chip 8、Input 12——给应用一
 ///   层「现代化、克制」的视觉语言。
 /// - **AppBar 平面化**：scrolledUnderElevation=0 + 用 `surfaceContainerLow` 背景
 ///   色，避免默认材质阴影在桌面端的视觉杂讯。
 /// - **桌面 vs 移动密度**：移动端 [VisualDensity.compact] 让一屏放下更多任务；
 ///   桌面端保持 standard 避免按钮过小被误点。
-ThemeData buildAria2downTheme(Brightness brightness) {
+ThemeData buildAria2downTheme(Brightness brightness, {Color? seedColor}) {
   final scheme = ColorScheme.fromSeed(
-    seedColor: const Color(0xFF1565C0),
+    seedColor: seedColor ?? kDefaultSeedColor,
     brightness: brightness,
   );
   final isDark = brightness == Brightness.dark;

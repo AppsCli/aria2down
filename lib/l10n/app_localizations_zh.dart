@@ -9,7 +9,7 @@ class AppLocalizationsZh extends AppLocalizations {
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
-  String get appTitle => 'aria2down';
+  String get appTitle => 'Aria2Down';
 
   @override
   String get navTasks => '任务';
@@ -48,6 +48,25 @@ class AppLocalizationsZh extends AppLocalizations {
   String get themeDark => '深色';
 
   @override
+  String get themeSeedColor => '主题色';
+
+  @override
+  String get themeSeedColorBody =>
+      'Material 3 会以此种子色推导整套浅色/深色配色。点选预设、保留默认，或输入自定义十六进制。';
+
+  @override
+  String get themeSeedColorDefault => '默认（品牌色）';
+
+  @override
+  String get themeSeedColorCustomTitle => '自定义主题色';
+
+  @override
+  String get themeSeedColorCustomBody => '输入十六进制颜色（#RRGGBB 或 #AARRGGBB）。';
+
+  @override
+  String get themeSeedColorCustomInvalid => '无效的十六进制颜色，请输入 6 位或 8 位十六进制数字。';
+
+  @override
   String get language => '语言';
 
   @override
@@ -57,7 +76,37 @@ class AppLocalizationsZh extends AppLocalizations {
   String get langEnglish => 'English';
 
   @override
-  String get langChinese => '简体中文';
+  String get langChineseSimplified => '简体中文';
+
+  @override
+  String get langChineseTraditional => '繁體中文';
+
+  @override
+  String get langJapanese => '日本語';
+
+  @override
+  String get langKorean => '한국어';
+
+  @override
+  String get langSpanish => 'Español';
+
+  @override
+  String get langFrench => 'Français';
+
+  @override
+  String get langGerman => 'Deutsch';
+
+  @override
+  String get langRussian => 'Русский';
+
+  @override
+  String get langPortuguese => 'Português';
+
+  @override
+  String get langArabic => 'العربية';
+
+  @override
+  String get langVietnamese => 'Tiếng Việt';
 
   @override
   String get downloadDirectory => '默认下载目录';
@@ -69,16 +118,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get downloadDirectoryClear => '使用系统默认';
 
   @override
-  String get aria2BinaryPath => 'aria2c 路径（可选）';
-
-  @override
-  String get aria2BinaryHint => '留空则从 PATH 查找';
-
-  @override
   String get save => '保存';
-
-  @override
-  String get restartAria2Hint => '修改路径后 aria2 将自动重启以生效。';
 
   @override
   String get tasksTitle => '任务';
@@ -88,6 +128,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get tabWaiting => '等待';
+
+  @override
+  String get tabCompleted => '已完成';
 
   @override
   String get tabStopped => '已停止';
@@ -106,6 +149,62 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get refreshTasks => '刷新';
+
+  @override
+  String get addTaskFieldDownloadDir => '下载到（本次任务）';
+
+  @override
+  String get addTaskFieldDownloadDirHint => '留空则使用默认目录';
+
+  @override
+  String get pickDownloadDirTooltip => '选择下载目录';
+
+  @override
+  String get askDownloadDirEachTimeTitle => '每次下载前询问下载目录';
+
+  @override
+  String get askDownloadDirEachTimeBody =>
+      '开启后，每次新下载都会先弹出目录选择对话框。桌面端使用系统原生选择器；移动端因 aria2 无法直接写入 SAF URI，仅展示沙箱内可写目录。';
+
+  @override
+  String get downloadDirMobileSheetTitle => '选择可写目录';
+
+  @override
+  String get downloadDirMobileSheetNote =>
+      '在移动端，aria2 只能写入应用沙箱内的路径。请从建议目录中挑选或输入一个你已经创建好的自定义路径。';
+
+  @override
+  String get downloadDirMobileSheetConfirm => '使用此路径';
+
+  @override
+  String get downloadDirAndroidExternalFiles => '应用专属外部存储';
+
+  @override
+  String get downloadDirAndroidAppDocuments => '应用内部 Documents';
+
+  @override
+  String get downloadDirIosDocuments => '应用 Documents（在「文件」App 中可见）';
+
+  @override
+  String get downloadDirIosAppSupport => '应用 Support（隐藏）';
+
+  @override
+  String get downloadDirCandidateUse => '使用';
+
+  @override
+  String get downloadDirCandidateUseSubdir => '建子目录使用';
+
+  @override
+  String get downloadDirSubdirHint => '子目录名称（例如 Movies）';
+
+  @override
+  String get downloadDirRemovableOnUninstall => '卸载应用时此目录会被一并清除。';
+
+  @override
+  String get downloadDirManualPathLabel => '自定义路径';
+
+  @override
+  String get downloadDirManualPathHint => '/sdcard/Download/aria2';
 
   @override
   String get historyClearTitle => '清空历史';
@@ -185,6 +284,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get emptyWaiting => '暂无等待中的任务';
+
+  @override
+  String get emptyCompleted => '暂无已完成的下载';
 
   @override
   String get emptyStopped => '暂无已停止任务';
@@ -313,6 +415,9 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get dialogCancel => '取消';
+
+  @override
+  String get dialogConfirm => '确定';
 
   @override
   String get torrentSelectDialogTitle => '选择要下载的文件';
@@ -517,28 +622,8 @@ class AppLocalizationsZh extends AppLocalizations {
   String get engineLibrary => '内嵌库（libaria2）';
 
   @override
-  String get engineSubprocess => 'aria2c 子进程';
-
-  @override
   String get engineLibraryDesc =>
-      '通过 Dart FFI 在进程内运行 aria2。内存更省、支持 iOS、无需附带额外二进制。';
-
-  @override
-  String get engineSubprocessDesc => '启动随包发布的 aria2c 可执行文件，适合作为内嵌库初始化失败时的兜底。';
-
-  @override
-  String get engineFallbackToSubprocess => '失败时自动回退到子进程';
-
-  @override
-  String get engineFallbackToSubprocessDesc => '内嵌引擎启动失败时，自动改用 aria2c 子进程重试。';
-
-  @override
-  String get engineUnavailableBanner => '当前构建未链接内嵌引擎，已回退到子进程。';
-
-  @override
-  String engineInitFailed(String error) {
-    return '内嵌引擎启动失败：$error';
-  }
+      '在所有支持的平台上通过 Dart FFI 在进程内运行 aria2。ADR-010 已移除 aria2c 子进程引擎——若需要委托给外部 aria2c，请改用「远程 RPC」连接方式。';
 
   @override
   String engineCurrent(String engine) {
@@ -547,9 +632,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get engineLibraryShort => '内嵌库';
-
-  @override
-  String get engineSubprocessShort => '子进程';
 
   @override
   String get engineRemoteShort => '远程';
@@ -607,7 +689,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get launchAtStartup => '开机自启';
 
   @override
-  String get launchAtStartupDesc => '登录系统时自动启动 aria2down（需平台权限）。';
+  String get launchAtStartupDesc => '登录系统时自动启动 Aria2Down（需平台权限）。';
 
   @override
   String get settingsBackup => '备份与恢复';
@@ -641,7 +723,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get trayQuit => '退出';
 
   @override
-  String get trayToolTip => 'aria2down — 点击显示窗口';
+  String get trayToolTip => 'Aria2Down — 点击显示窗口';
 
   @override
   String get trayNewTask => '新建下载…';
@@ -657,11 +739,11 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String trayToolTipStats(String down, String up, int active, int waiting) {
-    return 'aria2down\n↓ $down  ↑ $up\n活动 $active · 等待 $waiting';
+    return 'Aria2Down\n↓ $down  ↑ $up\n活动 $active · 等待 $waiting';
   }
 
   @override
-  String get trayToolTipOffline => 'aria2down\n已断开 — 点击图标重试';
+  String get trayToolTipOffline => 'Aria2Down\n已断开 — 点击图标重试';
 
   @override
   String get startMinimized => '启动时隐藏到托盘';
@@ -677,7 +759,7 @@ class AppLocalizationsZh extends AppLocalizations {
       'Android：以前台服务通知保持本机 aria2 运行；iOS：申请有限的后台执行时间。关闭后应用挂起时下载会被系统暂停。';
 
   @override
-  String get keepAliveTitle => 'aria2down 正在后台下载';
+  String get keepAliveTitle => 'Aria2Down 正在后台下载';
 
   @override
   String get notifPauseAllDone => '已请求全部暂停';
@@ -740,7 +822,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get applyRuntimeLimitsEmpty => '请先填写至少一项限速或并发参数';
 
   @override
-  String get aboutTitle => '关于 aria2down';
+  String get aboutTitle => '关于 Aria2Down';
 
   @override
   String get aboutOpenDetail => '版本、许可证与项目链接';
@@ -784,10 +866,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get daemonErrorTitle => '无法连接 aria2';
 
   @override
-  String get daemonErrorBinaryNotFound =>
-      '未找到 aria2c。请安装 aria2、在设置中指定路径，或将预编译二进制放入 assets；也可改用远程 RPC。';
-
-  @override
   String get daemonErrorWebLocal =>
       '浏览器无法启动本机 aria2。请在设置中使用「远程 RPC」连接已开启 RPC 的 aria2 服务。';
 
@@ -798,7 +876,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get daemonErrorSwitchRemote => '切换到远程 RPC';
 
   @override
-  String get welcomeRemoteTitle => '欢迎使用 aria2down';
+  String get welcomeRemoteTitle => '欢迎使用 Aria2Down';
 
   @override
   String get welcomeRemoteBody =>
@@ -856,7 +934,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get copyRpcConfigTitle => '复制扩展用 RPC 配置';
 
   @override
-  String get copyRpcConfigSubtitle => '供 Chrome 扩展选项页粘贴（需曾启动过本机 aria2）';
+  String get copyRpcConfigSubtitle => '供 Chrome 扩展选项页粘贴（使用当前远程 RPC 地址与密钥）';
 
   @override
   String get copyRpcConfigDone => 'RPC 配置已复制到剪贴板';
@@ -1022,4 +1100,132 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get aria2LogNoMatch => '没有匹配的日志行。';
+}
+
+/// The translations for Chinese, as used in Taiwan (`zh_TW`).
+class AppLocalizationsZhTw extends AppLocalizationsZh {
+  AppLocalizationsZhTw() : super('zh_TW');
+
+  @override
+  String get navTasks => '任務';
+
+  @override
+  String get navAdd => '新增';
+
+  @override
+  String get navSettings => '設定';
+
+  @override
+  String get settingsTitle => '設定';
+
+  @override
+  String get appearance => '外觀';
+
+  @override
+  String get theme => '主題';
+
+  @override
+  String get themeSystem => '跟隨系統';
+
+  @override
+  String get themeLight => '淺色';
+
+  @override
+  String get themeDark => '深色';
+
+  @override
+  String get language => '語言';
+
+  @override
+  String get langSystem => '跟隨系統';
+
+  @override
+  String get save => '儲存';
+
+  @override
+  String get tasksTitle => '任務';
+
+  @override
+  String get tabActive => '進行中';
+
+  @override
+  String get tabWaiting => '等待';
+
+  @override
+  String get tabCompleted => '已完成';
+
+  @override
+  String get tabStopped => '已停止';
+
+  @override
+  String get tabHistory => '歷史';
+
+  @override
+  String get emptyHistory => '尚無本機歷史紀錄';
+
+  @override
+  String get refreshTasks => '重新整理';
+
+  @override
+  String get emptyActive => '沒有進行中的下載';
+
+  @override
+  String get emptyWaiting => '沒有等待中的任務';
+
+  @override
+  String get emptyCompleted => '沒有已完成的下載';
+
+  @override
+  String get emptyStopped => '沒有已停止的任務';
+
+  @override
+  String get statusPaused => '已暫停';
+
+  @override
+  String get statusComplete => '已完成';
+
+  @override
+  String get statusError => '錯誤';
+
+  @override
+  String get statusRemoved => '已移除';
+
+  @override
+  String get addButton => '新增';
+
+  @override
+  String get pickTorrent => '選擇 .torrent';
+
+  @override
+  String get pickMetalink => '選擇 Metalink';
+
+  @override
+  String get retry => '重試';
+
+  @override
+  String get openFolder => '開啟資料夾';
+
+  @override
+  String get dialogCancel => '取消';
+
+  @override
+  String get dialogConfirm => '確定';
+
+  @override
+  String get settingsConnection => '連線';
+
+  @override
+  String get connectionLocal => '本機 aria2';
+
+  @override
+  String get connectionRemote => '遠端 RPC';
+
+  @override
+  String get pasteFromClipboard => '從剪貼簿貼上';
+
+  @override
+  String get delete => '刪除';
+
+  @override
+  String get pasteAndAdd => '貼上並新增';
 }

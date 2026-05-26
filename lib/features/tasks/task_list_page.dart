@@ -23,6 +23,7 @@ import '../../core/task_list_keys.dart';
 import '../../core/uri_utils.dart';
 import '../../core/task_history_recorder.dart';
 import '../../core/task_list_sort.dart';
+import '../../core/task_list_split.dart';
 import '../../data/models/task_history_entry.dart';
 import '../../providers/app_background_provider.dart';
 import '../../providers/aria2_daemon_provider.dart';
@@ -56,7 +57,7 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
   // 缓存当前 WS 是否可用，以便后台/前台切换时重启计时器仍能选对间隔。
   bool _wsConnected = false;
   TaskHistoryRecorder? _historyRecorder;
-  // 跟踪 daemon 内部 client/WS 的重建代际：LocalDaemon auto-restart 或
+  // 跟踪 daemon 内部 client/WS 的重建代际：LibraryDaemon 重启或
   // RemoteDaemon WS 重连成功时会自增此值。同一 daemon 对象但 generation
   // 变化时，需要重绑 WS 订阅并以 _最新的_ daemon.client 重建历史记录器。
   ValueListenable<int>? _generationListenable;
@@ -68,7 +69,21 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
 
   List<Map<String, dynamic>> _active = [];
   List<Map<String, dynamic>> _waiting = [];
+
+  /// aria2 `tellStopped` 的原始返回（混合 status=complete / error / removed）。
+  /// UI 上拆成「已完成」(`_completedView`) 与「已停止」(`_stoppedView`) 两
+  /// 个 Tab，但 paged 加载、`onStoppedList` 历史落库、batch action 依然走
+  /// 这份完整列表，避免重复拉取。
   List<Map<String, dynamic>> _stopped = [];
+
+  /// 已完成（`status == 'complete'`）的子集，对应「已完成」Tab。
+  List<Map<String, dynamic>> get _completedView =>
+      filterCompletedTasks(_stopped);
+
+  /// 真正"被停止"的子集（error / removed / 其他非 complete 状态），对应
+  /// 「已停止」Tab——之前这里把"成功完成"也算进来，用户找下完的文件总要
+  /// 跟一堆失败 / 取消混在一起翻。
+  List<Map<String, dynamic>> get _stoppedView => filterStoppedTasks(_stopped);
   GlobalStatView? _global;
   Map<String, dynamic>? _version;
   String? _loadError;
@@ -101,7 +116,11 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 4, vsync: this)
+    // 5 个 Tab：active / waiting / completed / stopped / history。
+    // 「已完成」从原本与 error/removed 混在一起的 stopped 中拆出来——
+    // 用户视角下「成功完成」与「失败/被取消」是两类完全不同的任务，
+    // 放一起会让用户为了找到刚下完的电影翻一堆 .torrent 报错记录。
+    _tabs = TabController(length: 5, vsync: this)
       ..addListener(() {
         if (mounted) setState(() {});
       });
@@ -483,76 +502,7 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
 
   Future<void> _openFolder(Map<String, dynamic> task) async {
     final l10n = AppLocalizations.of(context)!;
-    final path = resolveRevealPath(task);
-    if (path == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.openFolderFailed)));
-      return;
-    }
-    if (kIsWeb) {
-      await Clipboard.setData(ClipboardData(text: path));
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.openFolderWebCopied)));
-      return;
-    }
-    final r = await revealPathInFileManager(path);
-    if (!mounted) return;
-    switch (r) {
-      case RevealPathResult.ok:
-        break;
-      case RevealPathResult.unsupportedFolderOnMobile:
-        await _showMobilePathSheet(path, l10n);
-        break;
-      case RevealPathResult.failed:
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l10n.openFileFailed)));
-        break;
-      case RevealPathResult.unsupportedPlatform:
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(l10n.openFolderFailed)));
-        break;
-    }
-  }
-
-  Future<void> _showMobilePathSheet(String path, AppLocalizations l10n) async {
-    final messenger = ScaffoldMessenger.of(context);
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              l10n.mobilePathSheetTitle,
-              style: Theme.of(ctx).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            SelectableText(path),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: () async {
-                await Clipboard.setData(ClipboardData(text: path));
-                if (!ctx.mounted) return;
-                Navigator.pop(ctx);
-                messenger.showSnackBar(
-                  SnackBar(content: Text(l10n.mobilePathCopied)),
-                );
-              },
-              icon: const Icon(Icons.copy_outlined),
-              label: Text(l10n.copyPath),
-            ),
-          ],
-        ),
-      ),
-    );
+    await revealPathInUiWithFeedback(context, l10n, resolveRevealPath(task));
   }
 
   @override
@@ -570,7 +520,7 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
     super.dispose();
   }
 
-  /// daemon 内部 client/WS 被重建（LocalDaemon auto-restart / RemoteDaemon
+  /// daemon 内部 client/WS 被重建（LibraryDaemon 重启 / RemoteDaemon
   /// WS 重连）时调用：重新读取最新 `daemon.client` 与 `daemon.wsNotifier`
   /// 并重绑订阅。
   void _onConnectionGenerationBumped() {
@@ -727,7 +677,10 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
                 value: 'export_snapshot',
                 child: Text(l10n.batchExportTasks),
               ),
-              if (_tabs.index == 3) ...[
+              // History tab 是第 5 个（index 4）：拆出 Completed Tab 后该
+              // 索引从 3 漂移到 4。这里专属菜单（导出 / 导入历史）只在
+              // 历史 Tab 可见，避免在任务列表 Tab 误触发本地历史动作。
+              if (_tabs.index == 4) ...[
                 PopupMenuItem(
                   value: 'export_history',
                   child: Text(l10n.batchExportHistory),
@@ -764,7 +717,10 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
               });
             },
           ),
-          if (_tabs.index == 3)
+          // 「清空历史」按钮仅在 History Tab（index 4，自从 Completed Tab
+          // 插入后从原本 3 漂移而来）显示——避免在其他 Tab 看到一个会
+          // 永久清空本地历史的 AppBar 红按钮造成误触。
+          if (_tabs.index == 4)
             IconButton(
               tooltip: l10n.historyClearTitle,
               icon: const Icon(Icons.delete_sweep_outlined),
@@ -788,7 +744,8 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
           tabs: [
             Tab(text: '${l10n.tabActive} (${_active.length})'),
             Tab(text: '${l10n.tabWaiting} (${_waiting.length})'),
-            Tab(text: '${l10n.tabStopped} (${_stopped.length})'),
+            Tab(text: '${l10n.tabCompleted} (${_completedView.length})'),
+            Tab(text: '${l10n.tabStopped} (${_stoppedView.length})'),
             Tab(text: l10n.tabHistory),
           ],
         ),
@@ -864,11 +821,24 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
                       l10n.emptyWaiting,
                       showRetry: false,
                     ),
+                    // 已完成 Tab：与「已停止」共享 tellStopped paged 数据，
+                    // 因此底部 footer / 加载更多按钮也挂在这里——避免用户在
+                    // 「已完成」Tab 看到的列表实际是被分页截断的，但本 Tab
+                    // 却没有"加载更多"提示。
                     _buildTaskTab(
-                      _filter(_stopped),
+                      _filter(_completedView),
+                      l10n.emptyCompleted,
+                      showRetry: true,
+                      stoppedTotalLoaded: _stopped.length,
+                      onLoadMoreStopped: _stoppedReachedEnd
+                          ? null
+                          : _loadMoreStopped,
+                      stoppedReachedEnd: _stoppedReachedEnd,
+                    ),
+                    _buildTaskTab(
+                      _filter(_stoppedView),
                       l10n.emptyStopped,
                       showRetry: true,
-                      // stopped tab 专属：底部「加载更多」 / 「已加载全部」 footer。
                       stoppedTotalLoaded: _stopped.length,
                       onLoadMoreStopped: _stoppedReachedEnd
                           ? null

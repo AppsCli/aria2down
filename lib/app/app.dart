@@ -78,7 +78,7 @@ class _DaemonLoadingScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    'aria2down',
+                    'Aria2Down',
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w700,
                     ),
@@ -125,16 +125,27 @@ class Aria2downApp extends ConsumerWidget {
       data: (settings) {
         final router = ref.watch(_routerProvider);
         final daemon = ref.watch(aria2DaemonProvider);
+        // 把用户选定的种子色一次解析出来，下面三个 MaterialApp 分支共用——
+        // null 即沿用品牌默认（buildAria2downTheme 内部回退）。
+        final seedColor = settings.seedColorArgb == null
+            ? null
+            : Color(settings.seedColorArgb!);
         return AppLifecycleRefresh(
           child: DesktopIntegration(
             child: daemon.when(
               loading: () => MaterialApp(
                 debugShowCheckedModeBanner: false,
-                title: 'aria2down',
+                title: 'Aria2Down',
                 locale: settings.localeOrNull,
                 themeMode: settings.themeMode,
-                theme: buildAria2downTheme(Brightness.light),
-                darkTheme: buildAria2downTheme(Brightness.dark),
+                theme: buildAria2downTheme(
+                  Brightness.light,
+                  seedColor: seedColor,
+                ),
+                darkTheme: buildAria2downTheme(
+                  Brightness.dark,
+                  seedColor: seedColor,
+                ),
                 localizationsDelegates: AppLocalizations.localizationsDelegates,
                 supportedLocales: AppLocalizations.supportedLocales,
                 home: Builder(
@@ -150,22 +161,34 @@ class Aria2downApp extends ConsumerWidget {
               ),
               error: (e, _) => MaterialApp(
                 debugShowCheckedModeBanner: false,
-                title: 'aria2down',
+                title: 'Aria2Down',
                 locale: settings.localeOrNull,
                 themeMode: settings.themeMode,
-                theme: buildAria2downTheme(Brightness.light),
-                darkTheme: buildAria2downTheme(Brightness.dark),
+                theme: buildAria2downTheme(
+                  Brightness.light,
+                  seedColor: seedColor,
+                ),
+                darkTheme: buildAria2downTheme(
+                  Brightness.dark,
+                  seedColor: seedColor,
+                ),
                 localizationsDelegates: AppLocalizations.localizationsDelegates,
                 supportedLocales: AppLocalizations.supportedLocales,
                 home: DaemonErrorScreen(error: e),
               ),
               data: (_) => MaterialApp.router(
                 debugShowCheckedModeBanner: false,
-                title: 'aria2down',
+                title: 'Aria2Down',
                 locale: settings.localeOrNull,
                 themeMode: settings.themeMode,
-                theme: buildAria2downTheme(Brightness.light),
-                darkTheme: buildAria2downTheme(Brightness.dark),
+                theme: buildAria2downTheme(
+                  Brightness.light,
+                  seedColor: seedColor,
+                ),
+                darkTheme: buildAria2downTheme(
+                  Brightness.dark,
+                  seedColor: seedColor,
+                ),
                 localizationsDelegates: AppLocalizations.localizationsDelegates,
                 supportedLocales: AppLocalizations.supportedLocales,
                 routerConfig: router,

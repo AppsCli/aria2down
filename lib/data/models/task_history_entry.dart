@@ -1,3 +1,5 @@
+import 'package:path/path.dart' as p;
+
 import '../../core/format_utils.dart';
 import '../../core/reveal_path.dart';
 
@@ -123,32 +125,40 @@ class TaskHistoryEntry {
   /// 动态数据，详情页 Overview/Torrent Tab 仅展示已持久化的部分；动态字段
   /// 会显示为 0 / 空，与 aria2 把任务从 `downloadResults_` 清空后再查询的
   /// 表现一致。
-  Map<String, dynamic> toDetailShape() => {
-    'gid': gid,
-    'status': status,
-    'totalLength': '$totalLength',
-    'completedLength': '$completedLength',
-    if (dir != null) 'dir': dir,
-    if (errorMessage != null) 'errorMessage': errorMessage,
-    'files': [
-      {
-        'index': '1',
-        // 用 history 持久化的 `name` 充当 path——`pickTaskName` 没有 uri
-        // 时退到 path 末尾，确保 AppBar 标题不会变成 "Task" 占位。
-        'path': name,
-        'length': '$totalLength',
-        'completedLength': '$completedLength',
-        'selected': 'true',
-        'uris': [
-          for (final u in uris) {'uri': u, 'status': 'used'},
-        ],
+  Map<String, dynamic> toDetailShape() {
+    // `files[0].path` 优先合成完整路径 `dir/name`：让历史快照详情页的
+    // 「打开下载位置」也能让文件管理器精确选中文件；文件已被移走时
+    // [revealPathInFileManager] 会自动回退到 dirname 打开目录。仅有
+    // name（无 dir）时退回原始 name，AppBar 标题仍走 `pickTaskName(path)`
+    // 的 basename 提取，不受影响。
+    final filePath = (dir != null && dir!.isNotEmpty && name.isNotEmpty)
+        ? p.join(dir!, name)
+        : name;
+    return {
+      'gid': gid,
+      'status': status,
+      'totalLength': '$totalLength',
+      'completedLength': '$completedLength',
+      if (dir != null) 'dir': dir,
+      if (errorMessage != null) 'errorMessage': errorMessage,
+      'files': [
+        {
+          'index': '1',
+          'path': filePath,
+          'length': '$totalLength',
+          'completedLength': '$completedLength',
+          'selected': 'true',
+          'uris': [
+            for (final u in uris) {'uri': u, 'status': 'used'},
+          ],
+        },
+      ],
+      if (infoHash != null) ...{
+        'infoHash': infoHash,
+        'bittorrent': {
+          if (name.isNotEmpty) 'info': {'name': name},
+        },
       },
-    ],
-    if (infoHash != null) ...{
-      'infoHash': infoHash,
-      'bittorrent': {
-        if (name.isNotEmpty) 'info': {'name': name},
-      },
-    },
-  };
+    };
+  }
 }

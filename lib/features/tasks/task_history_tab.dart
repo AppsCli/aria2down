@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:path/path.dart' as p;
 
 import '../../core/format_utils.dart';
+import '../../core/reveal_path.dart';
 import '../../data/models/task_history_entry.dart';
 import '../../data/task_history_repository.dart';
 import '../../providers/task_history_provider.dart';
@@ -101,6 +103,11 @@ class TaskHistoryTab extends ConsumerWidget {
                   ? e.completedLength / e.totalLength
                   : 0.0;
               final canRetry = e.uris.isNotEmpty;
+              // 「打开下载位置」前提：曾经持久化过 dir 字段。完成 / 出错 /
+              // 移除三种历史状态都可能保留 dir，所以不再额外按 status 过滤。
+              // 文件可能已被用户移走——此时 revealPathInFileManager 仍能落
+              // 到 dirname 兜底，至少把目录窗口打开。
+              final canReveal = e.dir != null && e.dir!.isNotEmpty;
               // 用状态色 + 状态图标的左侧徽章替代单调 ListTile，与任务列表一致。
               final Color statusColor;
               final IconData statusIcon;
@@ -192,6 +199,19 @@ class TaskHistoryTab extends ConsumerWidget {
                           ],
                         ),
                       ),
+                      if (canReveal)
+                        IconButton(
+                          tooltip: l10n.openFolder,
+                          icon: const Icon(Icons.folder_open_outlined),
+                          // 优先拼 `dir/name` 让文件管理器能精确选中文件；
+                          // 文件不存在时 revealPathInFileManager 内部会回退
+                          // 到 dirname（== entry.dir），仍能成功打开目录。
+                          onPressed: () => revealPathInUiWithFeedback(
+                            context,
+                            l10n,
+                            e.name.isNotEmpty ? p.join(e.dir!, e.name) : e.dir,
+                          ),
+                        ),
                       if (canRetry)
                         IconButton(
                           tooltip: l10n.retry,

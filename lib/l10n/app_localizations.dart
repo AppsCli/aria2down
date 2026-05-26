@@ -5,7 +5,16 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
+import 'app_localizations_ar.dart';
+import 'app_localizations_de.dart';
 import 'app_localizations_en.dart';
+import 'app_localizations_es.dart';
+import 'app_localizations_fr.dart';
+import 'app_localizations_ja.dart';
+import 'app_localizations_ko.dart';
+import 'app_localizations_pt.dart';
+import 'app_localizations_ru.dart';
+import 'app_localizations_vi.dart';
 import 'app_localizations_zh.dart';
 
 // ignore_for_file: type=lint
@@ -94,14 +103,24 @@ abstract class AppLocalizations {
 
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
+    Locale('ar'),
+    Locale('de'),
     Locale('en'),
+    Locale('es'),
+    Locale('fr'),
+    Locale('ja'),
+    Locale('ko'),
+    Locale('pt'),
+    Locale('ru'),
+    Locale('vi'),
     Locale('zh'),
+    Locale('zh', 'TW'),
   ];
 
   /// No description provided for @appTitle.
   ///
   /// In en, this message translates to:
-  /// **'aria2down'**
+  /// **'Aria2Down'**
   String get appTitle;
 
   /// No description provided for @navTasks.
@@ -176,6 +195,42 @@ abstract class AppLocalizations {
   /// **'Dark'**
   String get themeDark;
 
+  /// No description provided for @themeSeedColor.
+  ///
+  /// In en, this message translates to:
+  /// **'Accent color'**
+  String get themeSeedColor;
+
+  /// No description provided for @themeSeedColorBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Material 3 derives the full light/dark palette from this seed color. Tap a preset, leave on the default, or enter a custom hex.'**
+  String get themeSeedColorBody;
+
+  /// No description provided for @themeSeedColorDefault.
+  ///
+  /// In en, this message translates to:
+  /// **'Default (brand)'**
+  String get themeSeedColorDefault;
+
+  /// No description provided for @themeSeedColorCustomTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom accent color'**
+  String get themeSeedColorCustomTitle;
+
+  /// No description provided for @themeSeedColorCustomBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a hex color (#RRGGBB or #AARRGGBB).'**
+  String get themeSeedColorCustomBody;
+
+  /// No description provided for @themeSeedColorCustomInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid hex color. Use 6 or 8 hex digits.'**
+  String get themeSeedColorCustomInvalid;
+
   /// No description provided for @language.
   ///
   /// In en, this message translates to:
@@ -194,11 +249,71 @@ abstract class AppLocalizations {
   /// **'English'**
   String get langEnglish;
 
-  /// No description provided for @langChinese.
+  /// No description provided for @langChineseSimplified.
   ///
   /// In en, this message translates to:
-  /// **'Chinese'**
-  String get langChinese;
+  /// **'简体中文'**
+  String get langChineseSimplified;
+
+  /// No description provided for @langChineseTraditional.
+  ///
+  /// In en, this message translates to:
+  /// **'繁體中文'**
+  String get langChineseTraditional;
+
+  /// No description provided for @langJapanese.
+  ///
+  /// In en, this message translates to:
+  /// **'日本語'**
+  String get langJapanese;
+
+  /// No description provided for @langKorean.
+  ///
+  /// In en, this message translates to:
+  /// **'한국어'**
+  String get langKorean;
+
+  /// No description provided for @langSpanish.
+  ///
+  /// In en, this message translates to:
+  /// **'Español'**
+  String get langSpanish;
+
+  /// No description provided for @langFrench.
+  ///
+  /// In en, this message translates to:
+  /// **'Français'**
+  String get langFrench;
+
+  /// No description provided for @langGerman.
+  ///
+  /// In en, this message translates to:
+  /// **'Deutsch'**
+  String get langGerman;
+
+  /// No description provided for @langRussian.
+  ///
+  /// In en, this message translates to:
+  /// **'Русский'**
+  String get langRussian;
+
+  /// No description provided for @langPortuguese.
+  ///
+  /// In en, this message translates to:
+  /// **'Português'**
+  String get langPortuguese;
+
+  /// No description provided for @langArabic.
+  ///
+  /// In en, this message translates to:
+  /// **'العربية'**
+  String get langArabic;
+
+  /// No description provided for @langVietnamese.
+  ///
+  /// In en, this message translates to:
+  /// **'Tiếng Việt'**
+  String get langVietnamese;
 
   /// No description provided for @downloadDirectory.
   ///
@@ -218,29 +333,11 @@ abstract class AppLocalizations {
   /// **'Use system default'**
   String get downloadDirectoryClear;
 
-  /// No description provided for @aria2BinaryPath.
-  ///
-  /// In en, this message translates to:
-  /// **'aria2c path (optional)'**
-  String get aria2BinaryPath;
-
-  /// No description provided for @aria2BinaryHint.
-  ///
-  /// In en, this message translates to:
-  /// **'Leave empty to search PATH'**
-  String get aria2BinaryHint;
-
   /// No description provided for @save.
   ///
   /// In en, this message translates to:
   /// **'Save'**
   String get save;
-
-  /// No description provided for @restartAria2Hint.
-  ///
-  /// In en, this message translates to:
-  /// **'aria2 will restart to apply path changes.'**
-  String get restartAria2Hint;
 
   /// No description provided for @tasksTitle.
   ///
@@ -259,6 +356,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Waiting'**
   String get tabWaiting;
+
+  /// No description provided for @tabCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get tabCompleted;
 
   /// No description provided for @tabStopped.
   ///
@@ -295,6 +398,114 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Refresh'**
   String get refreshTasks;
+
+  /// No description provided for @addTaskFieldDownloadDir.
+  ///
+  /// In en, this message translates to:
+  /// **'Download to (this task)'**
+  String get addTaskFieldDownloadDir;
+
+  /// No description provided for @addTaskFieldDownloadDirHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Leave blank to use the default folder'**
+  String get addTaskFieldDownloadDirHint;
+
+  /// No description provided for @pickDownloadDirTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a folder'**
+  String get pickDownloadDirTooltip;
+
+  /// No description provided for @askDownloadDirEachTimeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask for the download folder each time'**
+  String get askDownloadDirEachTimeTitle;
+
+  /// No description provided for @askDownloadDirEachTimeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'When enabled, every new download opens a folder picker before being queued. Desktop platforms get the native picker; mobile platforms only see sandbox-writable folders since aria2 cannot write to SAF URIs.'**
+  String get askDownloadDirEachTimeBody;
+
+  /// No description provided for @downloadDirMobileSheetTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a writable folder'**
+  String get downloadDirMobileSheetTitle;
+
+  /// No description provided for @downloadDirMobileSheetNote.
+  ///
+  /// In en, this message translates to:
+  /// **'aria2 can only write to paths inside the app sandbox on mobile. Pick a suggested folder or type a custom path you have already created.'**
+  String get downloadDirMobileSheetNote;
+
+  /// No description provided for @downloadDirMobileSheetConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Use this path'**
+  String get downloadDirMobileSheetConfirm;
+
+  /// No description provided for @downloadDirAndroidExternalFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'App external files'**
+  String get downloadDirAndroidExternalFiles;
+
+  /// No description provided for @downloadDirAndroidAppDocuments.
+  ///
+  /// In en, this message translates to:
+  /// **'App internal documents'**
+  String get downloadDirAndroidAppDocuments;
+
+  /// No description provided for @downloadDirIosDocuments.
+  ///
+  /// In en, this message translates to:
+  /// **'App Documents (visible in Files app)'**
+  String get downloadDirIosDocuments;
+
+  /// No description provided for @downloadDirIosAppSupport.
+  ///
+  /// In en, this message translates to:
+  /// **'App Support (hidden)'**
+  String get downloadDirIosAppSupport;
+
+  /// No description provided for @downloadDirCandidateUse.
+  ///
+  /// In en, this message translates to:
+  /// **'Use'**
+  String get downloadDirCandidateUse;
+
+  /// No description provided for @downloadDirCandidateUseSubdir.
+  ///
+  /// In en, this message translates to:
+  /// **'Use a subfolder'**
+  String get downloadDirCandidateUseSubdir;
+
+  /// No description provided for @downloadDirSubdirHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Subfolder name (e.g. Movies)'**
+  String get downloadDirSubdirHint;
+
+  /// No description provided for @downloadDirRemovableOnUninstall.
+  ///
+  /// In en, this message translates to:
+  /// **'Cleared when the app is uninstalled.'**
+  String get downloadDirRemovableOnUninstall;
+
+  /// No description provided for @downloadDirManualPathLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom path'**
+  String get downloadDirManualPathLabel;
+
+  /// No description provided for @downloadDirManualPathHint.
+  ///
+  /// In en, this message translates to:
+  /// **'/sdcard/Download/aria2'**
+  String get downloadDirManualPathHint;
 
   /// No description provided for @historyClearTitle.
   ///
@@ -433,6 +644,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No waiting tasks'**
   String get emptyWaiting;
+
+  /// No description provided for @emptyCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'No completed downloads'**
+  String get emptyCompleted;
 
   /// No description provided for @emptyStopped.
   ///
@@ -667,6 +884,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Cancel'**
   String get dialogCancel;
+
+  /// No description provided for @dialogConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'OK'**
+  String get dialogConfirm;
 
   /// No description provided for @torrentSelectDialogTitle.
   ///
@@ -1032,47 +1255,11 @@ abstract class AppLocalizations {
   /// **'Embedded library (libaria2)'**
   String get engineLibrary;
 
-  /// No description provided for @engineSubprocess.
-  ///
-  /// In en, this message translates to:
-  /// **'aria2c subprocess'**
-  String get engineSubprocess;
-
   /// No description provided for @engineLibraryDesc.
   ///
   /// In en, this message translates to:
-  /// **'Runs aria2 in-process via FFI. Lower memory, works on iOS, no extra binary required.'**
+  /// **'Runs aria2 in-process via FFI on every supported platform. The aria2c subprocess engine was removed in ADR-010 — use Remote RPC if you need to delegate to an external aria2c.'**
   String get engineLibraryDesc;
-
-  /// No description provided for @engineSubprocessDesc.
-  ///
-  /// In en, this message translates to:
-  /// **'Launches the bundled aria2c executable. Useful as a fallback when libaria2 fails to initialize.'**
-  String get engineSubprocessDesc;
-
-  /// No description provided for @engineFallbackToSubprocess.
-  ///
-  /// In en, this message translates to:
-  /// **'Auto-fallback to subprocess'**
-  String get engineFallbackToSubprocess;
-
-  /// No description provided for @engineFallbackToSubprocessDesc.
-  ///
-  /// In en, this message translates to:
-  /// **'When the embedded engine cannot start, retry with the aria2c subprocess.'**
-  String get engineFallbackToSubprocessDesc;
-
-  /// No description provided for @engineUnavailableBanner.
-  ///
-  /// In en, this message translates to:
-  /// **'Embedded engine unavailable in this build — falling back to subprocess.'**
-  String get engineUnavailableBanner;
-
-  /// No description provided for @engineInitFailed.
-  ///
-  /// In en, this message translates to:
-  /// **'Embedded engine failed to start: {error}'**
-  String engineInitFailed(String error);
 
   /// No description provided for @engineCurrent.
   ///
@@ -1085,12 +1272,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'library'**
   String get engineLibraryShort;
-
-  /// No description provided for @engineSubprocessShort.
-  ///
-  /// In en, this message translates to:
-  /// **'subprocess'**
-  String get engineSubprocessShort;
 
   /// No description provided for @engineRemoteShort.
   ///
@@ -1203,7 +1384,7 @@ abstract class AppLocalizations {
   /// No description provided for @launchAtStartupDesc.
   ///
   /// In en, this message translates to:
-  /// **'Start aria2down when you sign in (OS permissions may apply).'**
+  /// **'Start Aria2Down when you sign in (OS permissions may apply).'**
   String get launchAtStartupDesc;
 
   /// No description provided for @settingsBackup.
@@ -1263,7 +1444,7 @@ abstract class AppLocalizations {
   /// No description provided for @trayToolTip.
   ///
   /// In en, this message translates to:
-  /// **'aria2down — click to show'**
+  /// **'Aria2Down — click to show'**
   String get trayToolTip;
 
   /// No description provided for @trayNewTask.
@@ -1293,13 +1474,13 @@ abstract class AppLocalizations {
   /// No description provided for @trayToolTipStats.
   ///
   /// In en, this message translates to:
-  /// **'aria2down\n↓ {down}  ↑ {up}\nactive {active} · waiting {waiting}'**
+  /// **'Aria2Down\n↓ {down}  ↑ {up}\nactive {active} · waiting {waiting}'**
   String trayToolTipStats(String down, String up, int active, int waiting);
 
   /// No description provided for @trayToolTipOffline.
   ///
   /// In en, this message translates to:
-  /// **'aria2down\nDisconnected — click to retry'**
+  /// **'Aria2Down\nDisconnected — click to retry'**
   String get trayToolTipOffline;
 
   /// No description provided for @startMinimized.
@@ -1329,7 +1510,7 @@ abstract class AppLocalizations {
   /// No description provided for @keepAliveTitle.
   ///
   /// In en, this message translates to:
-  /// **'aria2down is downloading in the background'**
+  /// **'Aria2Down is downloading in the background'**
   String get keepAliveTitle;
 
   /// No description provided for @notifPauseAllDone.
@@ -1455,7 +1636,7 @@ abstract class AppLocalizations {
   /// No description provided for @aboutTitle.
   ///
   /// In en, this message translates to:
-  /// **'About aria2down'**
+  /// **'About Aria2Down'**
   String get aboutTitle;
 
   /// No description provided for @aboutOpenDetail.
@@ -1536,12 +1717,6 @@ abstract class AppLocalizations {
   /// **'Cannot connect to aria2'**
   String get daemonErrorTitle;
 
-  /// No description provided for @daemonErrorBinaryNotFound.
-  ///
-  /// In en, this message translates to:
-  /// **'aria2c not found. Install aria2, set a path in Settings, bundle a binary in assets, or use Remote RPC.'**
-  String get daemonErrorBinaryNotFound;
-
   /// No description provided for @daemonErrorWebLocal.
   ///
   /// In en, this message translates to:
@@ -1563,7 +1738,7 @@ abstract class AppLocalizations {
   /// No description provided for @welcomeRemoteTitle.
   ///
   /// In en, this message translates to:
-  /// **'Welcome to aria2down'**
+  /// **'Welcome to Aria2Down'**
   String get welcomeRemoteTitle;
 
   /// No description provided for @welcomeRemoteBody.
@@ -1665,7 +1840,7 @@ abstract class AppLocalizations {
   /// No description provided for @copyRpcConfigSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'JSON for Chrome extension options (after local aria2 has started once)'**
+  /// **'JSON for Chrome extension options (uses your Remote RPC endpoint + secret)'**
   String get copyRpcConfigSubtitle;
 
   /// No description provided for @copyRpcConfigDone.
@@ -1985,18 +2160,59 @@ class _AppLocalizationsDelegate
   }
 
   @override
-  bool isSupported(Locale locale) =>
-      <String>['en', 'zh'].contains(locale.languageCode);
+  bool isSupported(Locale locale) => <String>[
+    'ar',
+    'de',
+    'en',
+    'es',
+    'fr',
+    'ja',
+    'ko',
+    'pt',
+    'ru',
+    'vi',
+    'zh',
+  ].contains(locale.languageCode);
 
   @override
   bool shouldReload(_AppLocalizationsDelegate old) => false;
 }
 
 AppLocalizations lookupAppLocalizations(Locale locale) {
+  // Lookup logic when language+country codes are specified.
+  switch (locale.languageCode) {
+    case 'zh':
+      {
+        switch (locale.countryCode) {
+          case 'TW':
+            return AppLocalizationsZhTw();
+        }
+        break;
+      }
+  }
+
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
+    case 'ar':
+      return AppLocalizationsAr();
+    case 'de':
+      return AppLocalizationsDe();
     case 'en':
       return AppLocalizationsEn();
+    case 'es':
+      return AppLocalizationsEs();
+    case 'fr':
+      return AppLocalizationsFr();
+    case 'ja':
+      return AppLocalizationsJa();
+    case 'ko':
+      return AppLocalizationsKo();
+    case 'pt':
+      return AppLocalizationsPt();
+    case 'ru':
+      return AppLocalizationsRu();
+    case 'vi':
+      return AppLocalizationsVi();
     case 'zh':
       return AppLocalizationsZh();
   }

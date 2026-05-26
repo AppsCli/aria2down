@@ -3,7 +3,8 @@ import 'package:flutter/foundation.dart';
 import '../client/aria2_client.dart';
 import '../client/ws_listener.dart';
 
-/// 抽象：本地子进程或远程 RPC 端点。
+/// 抽象：本机内嵌 libaria2（[LibraryDaemon]）或远程 aria2c RPC
+/// （[RemoteDaemon]）端点。ADR-010 后移除了本机 aria2c 子进程实现。
 abstract class Aria2Daemon {
   int get rpcPort;
   String get rpcSecret;
@@ -14,19 +15,20 @@ abstract class Aria2Daemon {
 
   /// WebSocket 通知（不可用则为 `null`，任务列表将回退轮询）。
   ///
-  /// 远程/本机子进程：[WsAria2Notifier]；
+  /// 远程模式：[WsAria2Notifier]；
   /// 内嵌库：基于 libaria2 事件回调的等价 [Aria2NotificationSource]。
   Aria2NotificationSource? get wsNotifier => null;
 
-  /// 连接代际计数：每次 daemon 内部 client / WS 重建（如 LocalDaemon
-  /// auto-restart、RemoteDaemon WS 重连）时自增。UI 层应监听此值，发现变化
-  /// 时重新绑定 WS 订阅并重建任何依赖 [client] 的组件（如历史记录器）。
+  /// 连接代际计数：每次 daemon 内部 client / WS 重建（如 RemoteDaemon
+  /// WS 重连）时自增。UI 层应监听此值，发现变化时重新绑定 WS 订阅并重建
+  /// 任何依赖 [client] 的组件（如历史记录器）。
   ///
   /// 默认实现是常量 `ValueListenable<int>`，不会触发任何 listener 回调，
   /// 适合不会内部重建连接的实现（如 [LibraryDaemon]）。
   ValueListenable<int> get connectionGeneration => _kStaticGeneration;
 
-  /// 本机 aria2 日志路径（仅 [LocalDaemon] 有值）。
+  /// 本机 aria2 日志路径（仅 [LibraryDaemon] 有值，会指向 stateRoot 下的
+  /// `aria2.log`）。远程模式没有本地日志可读，返回 null。
   String? get logFilePath => null;
 
   Future<void> start();

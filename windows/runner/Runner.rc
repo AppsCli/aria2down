@@ -90,12 +90,17 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "cloud.iothub" "\0"
-            VALUE "FileDescription", "aria2down" "\0"
+            VALUE "FileDescription", "Aria2Down" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
+            // InternalName / OriginalFilename 保持与 BINARY_NAME 一致（小写
+            // `aria2down`），避免破坏文件关联注册脚本 / installer / 任何依赖
+            // .exe 文件名的部署流程；ProductName / FileDescription 是 Windows
+            // Explorer "文件 → 属性 → 详情" 与 PE 信息工具显示给用户的字段，
+            // 这两个改成大写驼峰 `Aria2Down`。
             VALUE "InternalName", "aria2down" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 cloud.iothub. All rights reserved." "\0"
             VALUE "OriginalFilename", "aria2down.exe" "\0"
-            VALUE "ProductName", "aria2down" "\0"
+            VALUE "ProductName", "Aria2Down" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

@@ -26,27 +26,26 @@ abstract final class SettingsExport {
   }
 
   static AppSettings _settingsFromMap(Map<String, dynamic> m) {
+    // 历史字段 `localEngine` / `fallbackToSubprocess` / `aria2BinaryPath` 在
+    // ADR-010 后已经移除。旧导出 JSON 里若还有这几条键，这里**静默忽略**——
+    // 这样老用户从 v0.5.x 备份的 settings.json 也能直接导入，不会因为 enum
+    // 解析失败让整个 fromJson 抛 FormatException。
     return AppSettings(
       connectionMode: _enum(
         m['connectionMode'],
         ConnectionMode.values,
         ConnectionMode.local,
       ),
-      localEngine: _enum(
-        m['localEngine'],
-        LocalEngine.values,
-        LocalEngine.library,
-      ),
-      fallbackToSubprocess: m['fallbackToSubprocess'] as bool? ?? true,
       remoteRpcEndpoint: m['remoteRpcEndpoint'] as String?,
       remoteRpcSecret: m['remoteRpcSecret'] as String?,
-      aria2BinaryPath: m['aria2BinaryPath'] as String?,
       downloadDirectoryOverride: m['downloadDirectoryOverride'] as String?,
+      askDownloadDirEachTime: m['askDownloadDirEachTime'] as bool? ?? false,
       theme: _enum(
         m['theme'],
         AppThemePreference.values,
         AppThemePreference.system,
       ),
+      seedColorArgb: _intOrNull(m['seedColorArgb']),
       locale: _enum(
         m['locale'],
         AppLocalePreference.values,
@@ -66,13 +65,12 @@ abstract final class SettingsExport {
 
   static Map<String, dynamic> _settingsMap(AppSettings s) => {
     'connectionMode': s.connectionMode.name,
-    'localEngine': s.localEngine.name,
-    'fallbackToSubprocess': s.fallbackToSubprocess,
     'remoteRpcEndpoint': s.remoteRpcEndpoint,
     'remoteRpcSecret': s.remoteRpcSecret,
-    'aria2BinaryPath': s.aria2BinaryPath,
     'downloadDirectoryOverride': s.downloadDirectoryOverride,
+    'askDownloadDirEachTime': s.askDownloadDirEachTime,
     'theme': s.theme.name,
+    'seedColorArgb': s.seedColorArgb,
     'locale': s.locale.name,
     'closeToTray': s.closeToTray,
     'minimizeToTray': s.minimizeToTray,
@@ -94,22 +92,30 @@ abstract final class SettingsExport {
     }
   }
 
+  /// 容忍 JSON 反序列化里出现的 `int`、`num`（带小数的 e.g. `4.28e9`）、
+  /// `String`（手编 JSON）三种形态。无效输入退化到 null，让 [AppSettings]
+  /// 回退到应用品牌默认色。
+  static int? _intOrNull(Object? raw) {
+    if (raw == null) return null;
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    if (raw is String) return int.tryParse(raw.trim());
+    return null;
+  }
+
   /// 从 [SettingsRepository] 持久化键还原（与 SharedPreferences 键一致）。
   static AppSettings fromPreferenceMap(Map<String, Object?> prefs) {
     return AppSettings(
       connectionMode: SettingsRepository.readConnectionMode(
         prefs[SettingsKeys.connectionMode] as String?,
       ),
-      localEngine: SettingsRepository.readLocalEngine(
-        prefs[SettingsKeys.localEngine] as String?,
-      ),
-      fallbackToSubprocess:
-          prefs[SettingsKeys.fallbackToSubprocess] as bool? ?? true,
       remoteRpcEndpoint: prefs[SettingsKeys.remoteRpcEndpoint] as String?,
       remoteRpcSecret: prefs[SettingsKeys.remoteRpcSecret] as String?,
-      aria2BinaryPath: prefs[SettingsKeys.aria2BinaryPath] as String?,
       downloadDirectoryOverride: prefs[SettingsKeys.downloadDir] as String?,
+      askDownloadDirEachTime:
+          prefs[SettingsKeys.askDownloadDir] as bool? ?? false,
       theme: SettingsRepository.readTheme(prefs[SettingsKeys.theme] as String?),
+      seedColorArgb: prefs[SettingsKeys.seedColor] as int?,
       locale: SettingsRepository.readLocale(
         prefs[SettingsKeys.locale] as String?,
       ),

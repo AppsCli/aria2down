@@ -36,7 +36,12 @@ bool SendAppLinkToInstance(const std::wstring& title) {
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
-  // 已有 aria2down 窗口存在时，把当前命令行 (deep link) 投递过去就退出。
+  // 已有 Aria2Down 窗口存在时，把当前命令行 (deep link) 投递过去就退出。
+  //
+  // `L"aria2down"` 是 Win32 单实例检测用的 **窗口类标识**（与 Mutex 全局名
+  // 等价），属于内部技术标识符——保持小写不变，避免老版本升级后新进程
+  // 找不到老进程的同名窗口而开出第二实例。显示给用户的 Title bar 文字
+  // 在 [window.Create] 那行设置为大写驼峰 "Aria2Down"。
   if (SendAppLinkToInstance(L"aria2down")) {
     return EXIT_SUCCESS;
   }
@@ -61,7 +66,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
-  if (!window.Create(L"aria2down", origin, size)) {
+  if (!window.Create(L"Aria2Down", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../aria2/client/aria2_exceptions.dart'
-    show Aria2BinaryNotFoundException, Aria2WebLocalUnsupportedException;
+    show Aria2WebLocalUnsupportedException;
 import '../core/platform_hints.dart';
 import '../core/rpc_error_message.dart';
 import '../data/app_settings.dart';
@@ -19,9 +19,6 @@ class DaemonErrorScreen extends ConsumerWidget {
   final Object error;
 
   String _message(AppLocalizations l10n) {
-    if (error is Aria2BinaryNotFoundException) {
-      return l10n.daemonErrorBinaryNotFound;
-    }
     if (error is Aria2WebLocalUnsupportedException) {
       return l10n.daemonErrorWebLocal;
     }

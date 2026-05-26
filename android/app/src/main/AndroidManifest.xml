@@ -6,7 +6,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <application
-        android:label="aria2down"
+        android:label="Aria2Down"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:networkSecurityConfig="@xml/network_security_config">
@@ -37,7 +37,7 @@
             </intent-filter>
 
             <!-- 自定义协议：aria2down://add?uri=...&uris=...&url=... -->
-            <intent-filter android:label="aria2down">
+            <intent-filter android:label="Aria2Down">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -45,7 +45,7 @@
             </intent-filter>
 
             <!-- 磁力链：浏览器 / 客户端发起 magnet:?xt=urn:btih:... -->
-            <intent-filter android:label="aria2down">
+            <intent-filter android:label="Aria2Down">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -53,19 +53,19 @@
             </intent-filter>
 
             <!-- 分享文本（任意 App 的「分享」菜单 → aria2down）。 -->
-            <intent-filter android:label="aria2down">
+            <intent-filter android:label="Aria2Down">
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
-            <intent-filter android:label="aria2down">
+            <intent-filter android:label="Aria2Down">
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/x-uri" />
             </intent-filter>
 
             <!-- .torrent 文件（content:// 或 file://）。 -->
-            <intent-filter android:label="aria2down">
+            <intent-filter android:label="Aria2Down">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -75,7 +75,7 @@
                 <data android:scheme="https" />
                 <data android:mimeType="application/x-bittorrent" />
             </intent-filter>
-            <intent-filter android:label="aria2down">
+            <intent-filter android:label="Aria2Down">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -89,7 +89,7 @@
             </intent-filter>
 
             <!-- Metalink (.metalink / .meta4) -->
-            <intent-filter android:label="aria2down">
+            <intent-filter android:label="Aria2Down">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -98,7 +98,7 @@
                 <data android:mimeType="application/metalink+xml" />
                 <data android:mimeType="application/metalink4+xml" />
             </intent-filter>
-            <intent-filter android:label="aria2down">
+            <intent-filter android:label="Aria2Down">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />

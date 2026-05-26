@@ -92,8 +92,10 @@ base class LibraryDaemon implements Aria2Daemon {
     );
   }
 
-  /// 删除可能由上一次子进程模式残留的 `rpc.secret`：库引擎无监听 RPC 端口，
-  /// 留着旧文件会让扩展/CLI 连一个早就下线的端口，且鉴权失败。
+  /// 清理 ADR-010 之前子进程模式残留的 `rpc.secret`（升级到内嵌库后该文件
+  /// 不再被任何代码写入，留在 stateRoot 里会让早期的 CLI 工具误以为本机有
+  /// 一个监听 RPC 端口的 aria2c）。本身是幂等操作，下次启动若发现则一次
+  /// 删除完毕。
   Future<void> _purgeStaleSecretFile() async {
     try {
       final f = File(p.join(_stateRoot.path, 'rpc.secret'));
@@ -143,9 +145,8 @@ base class LibraryDaemon implements Aria2Daemon {
     if (_state == DaemonState.ready) return;
     _state = DaemonState.starting;
 
-    // 立刻清掉陈旧 `rpc.secret`（若曾用子进程模式留下）。这样扩展/Native
-    // Messaging 调 `readLocalRpcCredentials()` 会得到 null 而不是误连一个
-    // 早已下线的回环端口。
+    // 兼容老安装：把 ADR-010 之前 LocalDaemon 写下的 rpc.secret 清掉，
+    // 避免任何依赖该文件的旧 CLI / Native Messaging 流程误连下线的端口。
     await _purgeStaleSecretFile();
 
     final stateDir = Directory(p.join(_stateRoot.path, 'state'));

@@ -4,28 +4,47 @@ import 'package:flutter/material.dart';
 enum AppThemePreference { system, light, dark }
 
 /// 语言偏好。
-enum AppLocalePreference { system, en, zh }
+///
+/// 历史：v0.4 之前只有 en / zh 两种；本次新增 10 种主流国际化语言。Flutter
+/// `gen-l10n` 在 .arb 缺 key 时自动 fallback 到 template（英文），所以新增
+/// 的语言**只翻译了高频核心 key**（导航 / Tab / 状态 / 对话框按钮 / 设置
+/// 主标题约 30~40 项），未翻译的会显示英文。后续贡献者补全单语种 arb 即
+/// 可，无需修改本枚举或路由层。
+enum AppLocalePreference {
+  system,
+  en,
+  zh,
+  zhTw, // 繁体中文（台湾 / 香港）
+  ja, // 日本語
+  ko, // 한국어
+  es, // Español
+  fr, // Français
+  de, // Deutsch
+  ru, // Русский
+  pt, // Português (do Brasil)
+  ar, // العربية（RTL）
+  vi, // Tiếng Việt
+}
 
 /// 与 aria2 的连接方式。
+///
+/// 本机模式（[local]）现在固定走 [LibraryDaemon]（FFI 内嵌 libaria2）——历史
+/// 上的 aria2c 子进程兜底已经在 ADR-010 中移除：FFI 引擎在所有发布目标上都
+/// 是预编译可用的；子进程额外维护一份 binary 资源、staging 脚本、CI 流程，
+/// 收益已经远低于成本。
 enum ConnectionMode { local, remote }
-
-/// [ConnectionMode.local] 下进一步选择执行引擎：
-/// - [library]：通过 Dart FFI 内嵌 libaria2（默认）。
-/// - [subprocess]：启动外置 `aria2c` 二进制（兜底 / 调试用）。
-enum LocalEngine { library, subprocess }
 
 /// 用户可配置项（与 [SettingsRepository] 对应）。
 @immutable
 class AppSettings {
   const AppSettings({
     this.connectionMode = ConnectionMode.local,
-    this.localEngine = LocalEngine.library,
-    this.fallbackToSubprocess = true,
     this.remoteRpcEndpoint,
     this.remoteRpcSecret,
-    this.aria2BinaryPath,
     this.downloadDirectoryOverride,
+    this.askDownloadDirEachTime = false,
     this.theme = AppThemePreference.system,
+    this.seedColorArgb,
     this.locale = AppLocalePreference.system,
     this.closeToTray = true,
     this.minimizeToTray = false,
@@ -41,13 +60,33 @@ class AppSettings {
   static const AppSettings defaults = AppSettings();
 
   final ConnectionMode connectionMode;
-  final LocalEngine localEngine;
-  final bool fallbackToSubprocess;
   final String? remoteRpcEndpoint;
   final String? remoteRpcSecret;
-  final String? aria2BinaryPath;
   final String? downloadDirectoryOverride;
+
+  /// 添加新任务时是否弹出原生目录选择对话框让用户挑下载位置。
+  ///
+  /// - 桌面端调 `file_selector.getDirectoryPath()`，macOS sandbox 通过
+  ///   `com.apple.security.files.user-selected.read-write` entitlement 自动授
+  ///   权用户选中的目录读写。
+  /// - 移动端因为 aria2 引擎只能写本地文件系统路径（SAF `content://` URI 无法
+  ///   被 libaria2 直接消费），无法弹原生 SAF。取而代之地展示一个"沙箱内可写
+  ///   目录"BottomSheet 让用户选子目录或手动输入路径。
+  final bool askDownloadDirEachTime;
+
   final AppThemePreference theme;
+
+  /// 用户选择的主题种子色（Material 3 `ColorScheme.fromSeed` 的种子）。
+  ///
+  /// - `null` → 跟随应用品牌默认（`#1565C0` 偏冷的「下载箭头蓝」）。
+  /// - 非 null → 32 位 ARGB 整数。Material 3 会以该色为种子推导出整套
+  ///   light / dark `ColorScheme`，所以不需要分别存浅深色板。
+  ///
+  /// 持久化为 `int` 而非 hex 字符串是为了避免 SharedPreferences / JSON 中
+  /// 出现大小写差异和 `#` 前缀解析模糊。UI 层有十六进制输入框作为高级用户
+  /// 入口。
+  final int? seedColorArgb;
+
   final AppLocalePreference locale;
   final bool closeToTray;
   final bool minimizeToTray;
@@ -75,25 +114,38 @@ class AppSettings {
   };
 
   /// `null` 表示跟随系统语言。
+  ///
+  /// 注意：繁体中文走 `Locale('zh', 'TW')` 而不是 `Locale('zh_TW')`——Flutter
+  /// 的 LocalizationsDelegate 按 languageCode + countryCode 双段匹配，
+  /// `zh_TW` 整体当语言码会找不到。
   Locale? get localeOrNull => switch (locale) {
     AppLocalePreference.system => null,
     AppLocalePreference.en => const Locale('en'),
     AppLocalePreference.zh => const Locale('zh'),
+    AppLocalePreference.zhTw => const Locale('zh', 'TW'),
+    AppLocalePreference.ja => const Locale('ja'),
+    AppLocalePreference.ko => const Locale('ko'),
+    AppLocalePreference.es => const Locale('es'),
+    AppLocalePreference.fr => const Locale('fr'),
+    AppLocalePreference.de => const Locale('de'),
+    AppLocalePreference.ru => const Locale('ru'),
+    AppLocalePreference.pt => const Locale('pt'),
+    AppLocalePreference.ar => const Locale('ar'),
+    AppLocalePreference.vi => const Locale('vi'),
   };
 
   AppSettings copyWith({
     ConnectionMode? connectionMode,
-    LocalEngine? localEngine,
-    bool? fallbackToSubprocess,
     String? remoteRpcEndpoint,
     bool clearRemoteRpcEndpoint = false,
     String? remoteRpcSecret,
     bool clearRemoteRpcSecret = false,
-    String? aria2BinaryPath,
-    bool clearAria2BinaryPath = false,
     String? downloadDirectoryOverride,
     bool clearDownloadDirectoryOverride = false,
+    bool? askDownloadDirEachTime,
     AppThemePreference? theme,
+    int? seedColorArgb,
+    bool clearSeedColor = false,
     AppLocalePreference? locale,
     bool? closeToTray,
     bool? minimizeToTray,
@@ -111,21 +163,21 @@ class AppSettings {
   }) {
     return AppSettings(
       connectionMode: connectionMode ?? this.connectionMode,
-      localEngine: localEngine ?? this.localEngine,
-      fallbackToSubprocess: fallbackToSubprocess ?? this.fallbackToSubprocess,
       remoteRpcEndpoint: clearRemoteRpcEndpoint
           ? null
           : (remoteRpcEndpoint ?? this.remoteRpcEndpoint),
       remoteRpcSecret: clearRemoteRpcSecret
           ? null
           : (remoteRpcSecret ?? this.remoteRpcSecret),
-      aria2BinaryPath: clearAria2BinaryPath
-          ? null
-          : (aria2BinaryPath ?? this.aria2BinaryPath),
       downloadDirectoryOverride: clearDownloadDirectoryOverride
           ? null
           : (downloadDirectoryOverride ?? this.downloadDirectoryOverride),
+      askDownloadDirEachTime:
+          askDownloadDirEachTime ?? this.askDownloadDirEachTime,
       theme: theme ?? this.theme,
+      seedColorArgb: clearSeedColor
+          ? null
+          : (seedColorArgb ?? this.seedColorArgb),
       locale: locale ?? this.locale,
       closeToTray: closeToTray ?? this.closeToTray,
       minimizeToTray: minimizeToTray ?? this.minimizeToTray,

@@ -23,12 +23,6 @@ bool get preferLocalConnectionOnFirstRun {
   return isMobilePlatform;
 }
 
-/// iOS 沙盒不允许子进程 aria2c。
-bool get supportsSubprocessLocalEngine {
-  if (kIsWeb) return false;
-  return defaultTargetPlatform != TargetPlatform.iOS;
-}
-
 /// @deprecated 使用 [preferLocalConnectionOnFirstRun]。
 bool get shouldPreferRemoteAria2 => !preferLocalConnectionOnFirstRun && kIsWeb;
 

@@ -1,37 +1,12 @@
-# 从源码构建 aria2c（P1-01 / P1-02）
+# 从源码构建 aria2c（已废弃，见 ADR-010）
 
-桌面安装包内嵌 `aria2c` 前，需在本机或 CI 中编译 `third_party/aria2`。
-
-## 前置条件
-
-- 已初始化子模块：`git submodule update --init --recursive third_party/aria2`
-- **macOS**：Xcode CLT、`autoconf` / `automake` / `libtool`（`brew install autoconf automake libtool`）
-- **Linux**：`build-essential`、`autoconf`、`automake`、`libtool`、`pkg-config`、开发库（`libssl-dev`、`zlib1g-dev` 等，与发行版文档一致）
-
-## 一键脚本
-
-```bash
-# 动态链接（开发机）
-./scripts/build_aria2.sh
-
-# 静态链接（Windows 发布包等，体积更大）
-./scripts/build_aria2.sh --static
-```
-
-产物默认位于：`third_party/aria2/src/aria2c`（或 `aria2c.exe`）。
-
-## 打入 Flutter 桌面 bundle
-
-```bash
-flutter build macos --release   # 或 linux / windows
-./scripts/stage_aria2c.sh macos third_party/aria2/src/aria2c
-./scripts/package_desktop.sh macos
-```
-
-## CI 说明
-
-当前 GitHub Actions 在 **Linux / macOS / Windows** 构建中使用系统包管理器提供的 `aria2c` 做 **冒烟打包**（`stage_aria2c`），与「从子模块编译」不等价。正式发布建议在 release 流水线中调用 `build_aria2.sh` 后再 `stage_aria2c.sh`。
-
-## Android（P4-01）
-
-NDK 交叉编译尚未自动化，见 [ANDROID.md](ANDROID.md) 与 `scripts/stage_android_aria2.sh`。
+> **本文档已被 ADR-010 废弃。**
+>
+> aria2down 自 ADR-010 起本机模式只剩 [`LibraryDaemon`](../lib/aria2/daemon/library_daemon.dart)（FFI 内嵌 libaria2）。`aria2c` 子进程引擎、对应的 `scripts/build_aria2.sh` / `scripts/stage_aria2c.sh` 等 staging 流程、`assets/android/<abi>/aria2c` 二进制 placeholder、`bin/native_messaging_host.dart` / `bin/rpc_add_uri.dart` 等依赖 `rpc.secret` 的命令行工具都已经从源码中整体移除。
+>
+> **需要从源码编译什么？**
+>
+> - **libaria2 静态库（FFI 默认引擎）**：见 [BUILD_LIBARIA2.md](BUILD_LIBARIA2.md)；对应脚本 `scripts/build_libaria2_<platform>.sh`。
+> - **外部 aria2c 二进制（远程 RPC 模式连接）**：请直接安装系统包（`apt install aria2` / `brew install aria2` / `pacman -S aria2` 等），然后在 aria2down 设置页切换为「远程 RPC」并填入对应 endpoint + secret。
+>
+> 历史完整内容见 git 历史中的本文件。

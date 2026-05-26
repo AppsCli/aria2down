@@ -9,7 +9,7 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
-  String get appTitle => 'aria2down';
+  String get appTitle => 'Aria2Down';
 
   @override
   String get navTasks => 'Tasks';
@@ -48,6 +48,27 @@ class AppLocalizationsEn extends AppLocalizations {
   String get themeDark => 'Dark';
 
   @override
+  String get themeSeedColor => 'Accent color';
+
+  @override
+  String get themeSeedColorBody =>
+      'Material 3 derives the full light/dark palette from this seed color. Tap a preset, leave on the default, or enter a custom hex.';
+
+  @override
+  String get themeSeedColorDefault => 'Default (brand)';
+
+  @override
+  String get themeSeedColorCustomTitle => 'Custom accent color';
+
+  @override
+  String get themeSeedColorCustomBody =>
+      'Enter a hex color (#RRGGBB or #AARRGGBB).';
+
+  @override
+  String get themeSeedColorCustomInvalid =>
+      'Invalid hex color. Use 6 or 8 hex digits.';
+
+  @override
   String get language => 'Language';
 
   @override
@@ -57,7 +78,37 @@ class AppLocalizationsEn extends AppLocalizations {
   String get langEnglish => 'English';
 
   @override
-  String get langChinese => 'Chinese';
+  String get langChineseSimplified => '简体中文';
+
+  @override
+  String get langChineseTraditional => '繁體中文';
+
+  @override
+  String get langJapanese => '日本語';
+
+  @override
+  String get langKorean => '한국어';
+
+  @override
+  String get langSpanish => 'Español';
+
+  @override
+  String get langFrench => 'Français';
+
+  @override
+  String get langGerman => 'Deutsch';
+
+  @override
+  String get langRussian => 'Русский';
+
+  @override
+  String get langPortuguese => 'Português';
+
+  @override
+  String get langArabic => 'العربية';
+
+  @override
+  String get langVietnamese => 'Tiếng Việt';
 
   @override
   String get downloadDirectory => 'Default download folder';
@@ -69,16 +120,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get downloadDirectoryClear => 'Use system default';
 
   @override
-  String get aria2BinaryPath => 'aria2c path (optional)';
-
-  @override
-  String get aria2BinaryHint => 'Leave empty to search PATH';
-
-  @override
   String get save => 'Save';
-
-  @override
-  String get restartAria2Hint => 'aria2 will restart to apply path changes.';
 
   @override
   String get tasksTitle => 'Tasks';
@@ -88,6 +130,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get tabWaiting => 'Waiting';
+
+  @override
+  String get tabCompleted => 'Completed';
 
   @override
   String get tabStopped => 'Stopped';
@@ -106,6 +151,65 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get refreshTasks => 'Refresh';
+
+  @override
+  String get addTaskFieldDownloadDir => 'Download to (this task)';
+
+  @override
+  String get addTaskFieldDownloadDirHint =>
+      'Leave blank to use the default folder';
+
+  @override
+  String get pickDownloadDirTooltip => 'Pick a folder';
+
+  @override
+  String get askDownloadDirEachTimeTitle =>
+      'Ask for the download folder each time';
+
+  @override
+  String get askDownloadDirEachTimeBody =>
+      'When enabled, every new download opens a folder picker before being queued. Desktop platforms get the native picker; mobile platforms only see sandbox-writable folders since aria2 cannot write to SAF URIs.';
+
+  @override
+  String get downloadDirMobileSheetTitle => 'Pick a writable folder';
+
+  @override
+  String get downloadDirMobileSheetNote =>
+      'aria2 can only write to paths inside the app sandbox on mobile. Pick a suggested folder or type a custom path you have already created.';
+
+  @override
+  String get downloadDirMobileSheetConfirm => 'Use this path';
+
+  @override
+  String get downloadDirAndroidExternalFiles => 'App external files';
+
+  @override
+  String get downloadDirAndroidAppDocuments => 'App internal documents';
+
+  @override
+  String get downloadDirIosDocuments => 'App Documents (visible in Files app)';
+
+  @override
+  String get downloadDirIosAppSupport => 'App Support (hidden)';
+
+  @override
+  String get downloadDirCandidateUse => 'Use';
+
+  @override
+  String get downloadDirCandidateUseSubdir => 'Use a subfolder';
+
+  @override
+  String get downloadDirSubdirHint => 'Subfolder name (e.g. Movies)';
+
+  @override
+  String get downloadDirRemovableOnUninstall =>
+      'Cleared when the app is uninstalled.';
+
+  @override
+  String get downloadDirManualPathLabel => 'Custom path';
+
+  @override
+  String get downloadDirManualPathHint => '/sdcard/Download/aria2';
 
   @override
   String get historyClearTitle => 'Clear history';
@@ -186,6 +290,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get emptyWaiting => 'No waiting tasks';
+
+  @override
+  String get emptyCompleted => 'No completed downloads';
 
   @override
   String get emptyStopped => 'No stopped tasks';
@@ -320,6 +427,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get dialogCancel => 'Cancel';
+
+  @override
+  String get dialogConfirm => 'OK';
 
   @override
   String get torrentSelectDialogTitle => 'Choose files to download';
@@ -528,31 +638,8 @@ class AppLocalizationsEn extends AppLocalizations {
   String get engineLibrary => 'Embedded library (libaria2)';
 
   @override
-  String get engineSubprocess => 'aria2c subprocess';
-
-  @override
   String get engineLibraryDesc =>
-      'Runs aria2 in-process via FFI. Lower memory, works on iOS, no extra binary required.';
-
-  @override
-  String get engineSubprocessDesc =>
-      'Launches the bundled aria2c executable. Useful as a fallback when libaria2 fails to initialize.';
-
-  @override
-  String get engineFallbackToSubprocess => 'Auto-fallback to subprocess';
-
-  @override
-  String get engineFallbackToSubprocessDesc =>
-      'When the embedded engine cannot start, retry with the aria2c subprocess.';
-
-  @override
-  String get engineUnavailableBanner =>
-      'Embedded engine unavailable in this build — falling back to subprocess.';
-
-  @override
-  String engineInitFailed(String error) {
-    return 'Embedded engine failed to start: $error';
-  }
+      'Runs aria2 in-process via FFI on every supported platform. The aria2c subprocess engine was removed in ADR-010 — use Remote RPC if you need to delegate to an external aria2c.';
 
   @override
   String engineCurrent(String engine) {
@@ -561,9 +648,6 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get engineLibraryShort => 'library';
-
-  @override
-  String get engineSubprocessShort => 'subprocess';
 
   @override
   String get engineRemoteShort => 'remote';
@@ -626,7 +710,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get launchAtStartupDesc =>
-      'Start aria2down when you sign in (OS permissions may apply).';
+      'Start Aria2Down when you sign in (OS permissions may apply).';
 
   @override
   String get settingsBackup => 'Backup & restore';
@@ -661,7 +745,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get trayQuit => 'Quit';
 
   @override
-  String get trayToolTip => 'aria2down — click to show';
+  String get trayToolTip => 'Aria2Down — click to show';
 
   @override
   String get trayNewTask => 'New download…';
@@ -677,11 +761,11 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String trayToolTipStats(String down, String up, int active, int waiting) {
-    return 'aria2down\n↓ $down  ↑ $up\nactive $active · waiting $waiting';
+    return 'Aria2Down\n↓ $down  ↑ $up\nactive $active · waiting $waiting';
   }
 
   @override
-  String get trayToolTipOffline => 'aria2down\nDisconnected — click to retry';
+  String get trayToolTipOffline => 'Aria2Down\nDisconnected — click to retry';
 
   @override
   String get startMinimized => 'Start hidden in tray';
@@ -698,7 +782,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Android: persistent foreground service notification so the OS keeps the daemon running. iOS: request limited background execution time. When off, downloads may be paused once the app is suspended.';
 
   @override
-  String get keepAliveTitle => 'aria2down is downloading in the background';
+  String get keepAliveTitle => 'Aria2Down is downloading in the background';
 
   @override
   String get notifPauseAllDone => 'Requested pause-all';
@@ -763,7 +847,7 @@ class AppLocalizationsEn extends AppLocalizations {
       'Enter at least one limit or concurrency value';
 
   @override
-  String get aboutTitle => 'About aria2down';
+  String get aboutTitle => 'About Aria2Down';
 
   @override
   String get aboutOpenDetail => 'Version, license, and links';
@@ -808,10 +892,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get daemonErrorTitle => 'Cannot connect to aria2';
 
   @override
-  String get daemonErrorBinaryNotFound =>
-      'aria2c not found. Install aria2, set a path in Settings, bundle a binary in assets, or use Remote RPC.';
-
-  @override
   String get daemonErrorWebLocal =>
       'The browser cannot start a local aria2 process. Use Remote RPC in Settings.';
 
@@ -822,7 +902,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get daemonErrorSwitchRemote => 'Switch to remote RPC';
 
   @override
-  String get welcomeRemoteTitle => 'Welcome to aria2down';
+  String get welcomeRemoteTitle => 'Welcome to Aria2Down';
 
   @override
   String get welcomeRemoteBody =>
@@ -883,7 +963,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get copyRpcConfigSubtitle =>
-      'JSON for Chrome extension options (after local aria2 has started once)';
+      'JSON for Chrome extension options (uses your Remote RPC endpoint + secret)';
 
   @override
   String get copyRpcConfigDone => 'RPC config copied to clipboard';

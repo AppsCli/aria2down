@@ -235,6 +235,20 @@ class _TaskDetailPageState extends ConsumerState<TaskDetailPage>
           onPressed: () => context.pop(),
         ),
         actions: [
+          if (st != null && resolveRevealPath(st) != null)
+            IconButton(
+              tooltip: l10n.openFolder,
+              icon: const Icon(Icons.folder_open_outlined),
+              // 历史快照模式也走这里：`TaskHistoryEntry.toDetailShape` 把
+              // `files[0].path` 拼成 `dir/name`，所以 resolveRevealPath
+              // 返回真实文件路径，revealPathInFileManager 找不到文件时会
+              // 回退到 dirname 打开目录。
+              onPressed: () => revealPathInUiWithFeedback(
+                context,
+                l10n,
+                resolveRevealPath(st),
+              ),
+            ),
           if (st != null)
             IconButton(
               tooltip: l10n.taskShare,

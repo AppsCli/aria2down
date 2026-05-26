@@ -51,13 +51,13 @@
                                │
 ┌──────────────────────────────┴─────────────────────────────────┐
 │                     aria2 Integration                          │
-│   - Aria2Daemon (Local / Remote)                               │
-│   - Aria2Client (HTTP / WebSocket transport)                   │
-│   - Aria2ConfigBuilder, BinaryResolver                         │
+│   - Aria2Daemon (LibraryDaemon / RemoteDaemon)                 │
+│   - Aria2Client (HTTP / WebSocket / in-process transport)      │
 └──────────────────────────────┬─────────────────────────────────┘
-                               │ Process / Socket
+                               │ FFI / Socket
 ┌──────────────────────────────┴─────────────────────────────────┐
-│              aria2c (third_party/aria2 编译产物)              │
+│  libaria2 静态库（third_party/aria2 编译产物，FFI 内嵌）       │
+│  远程 RPC 时则连接外部 aria2c HTTP/WS                          │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -110,19 +110,14 @@ lib/aria2/
 │   ├── aria2_client.dart           # 高层 API（addUri, tellActive 等）
 │   ├── rpc_methods.dart            # 方法名常量
 │   ├── rpc_transport.dart          # 抽象传输接口（HTTP / 库内 共用）
-│   ├── http_transport.dart         # 基于 dio 的 HTTP 实现
+│   ├── http_transport.dart         # 基于 dio 的 HTTP 实现（仅远程模式）
 │   ├── in_process_transport.dart   # 库模式实现：调用 packages/aria2_native
 │   └── ws_listener.dart            # 通知源接口 + WS 实现
-├── daemon/
-│   ├── aria2_daemon.dart           # 抽象接口
-│   ├── library_daemon.dart         # 内嵌 libaria2（默认；ADR-007）
-│   ├── local_daemon.dart           # aria2c 子进程兜底
-│   ├── remote_daemon.dart          # 远程连接实现（含 Web）
-│   └── daemon_state.dart           # 状态枚举
-├── binary/
-│   └── binary_resolver.dart        # 解析 aria2c 路径（兜底引擎用）
-└── config/
-    └── aria2_config_builder.dart   # 生成 aria2.conf（兜底引擎用）
+└── daemon/
+    ├── aria2_daemon.dart           # 抽象接口
+    ├── library_daemon.dart         # 内嵌 libaria2（本机唯一引擎；ADR-007 / ADR-010）
+    ├── remote_daemon.dart          # 远程连接实现（含 Web）
+    └── daemon_state.dart           # 状态枚举
 
 packages/
 └── aria2_native/                   # 独立 FFI 插件：C 薄封装 + Dart 绑定
@@ -130,6 +125,8 @@ packages/
     ├── lib/                        # Dart bindings + Aria2NativeSession
     └── prebuilt/<platform>/<arch>/ # libaria2.a + 依赖（构建脚本生成）
 ```
+
+> ADR-010 之前还存在 `lib/aria2/daemon/local_daemon.dart`（aria2c 子进程）、`lib/aria2/binary/binary_resolver.dart`、`lib/aria2/config/aria2_config_builder.dart` 三个分支，已整体移除。需要外部 aria2c 的用户改用「远程 RPC」连接方式连接自己运行的 aria2c。
 
 ### 3.2 Transport 抽象
 
@@ -194,45 +191,28 @@ abstract class Aria2Daemon {
 }
 ```
 
-- `LocalDaemon`：管理 `aria2c` 子进程；自动生成端口（避开占用）、token、写 `aria2.conf`；监听进程退出码并自愈。
+- `LibraryDaemon`：在应用进程内启动 libaria2 session；启动时把进程级 aria2 options（`dir` / `input-file` / `save-session` 等）作为 FFI `KeyVals` 注入，session 内部维护 `aria2.session` 与 `aria2.log` 文件。
 - `RemoteDaemon`：仅维护到远端 RPC 的连接，无进程管理。
 
-### 3.5 BinaryResolver
+### 3.5 进程级 aria2 选项
 
-定位 `aria2c` 二进制的优先级：
+`LibraryDaemon` 启动时注入的关键 options（与 ADR-010 之前 LocalDaemon 写入 `aria2.conf` 的字段一致）：
 
-1. 用户在设置中显式指定的路径。
-2. 应用安装目录内置（桌面：`<app>/aria2c[.exe]`；Android：私有目录拷贝出的二进制）。
-3. 系统 `PATH` 中的 `aria2c`（开发模式 / 系统已安装时方便调试）。
-
-### 3.6 ConfigBuilder
-
-生成的 `aria2.conf` 大致内容：
-
-```ini
-enable-rpc=true
-rpc-listen-all=false
-rpc-allow-origin-all=false
-rpc-listen-port=<dynamic>
-rpc-secret=<random-32-bytes-hex>
-rpc-secure=false
+```text
 dir=<user_downloads>
 input-file=<state>/aria2.session
 save-session=<state>/aria2.session
 save-session-interval=30
 continue=true
-max-connection-per-server=8
-split=8
 min-split-size=1M
 disk-cache=64M
-file-allocation=falloc
+file-allocation=prealloc
 seed-time=0
 log=<state>/aria2.log
 log-level=warn
-console-log-level=warn
 ```
 
-参数全部可在设置页覆盖；用户修改后写入用户配置（与默认值合并）。
+设置页用户填入的 `maxConcurrentDownloads` / `maxConnectionPerServer` / `globalDownloadLimit` / `globalUploadLimit` 等运行时参数通过 `changeGlobalOption` 写入活跃 session（不重启进程）。
 
 ---
 
@@ -243,17 +223,21 @@ console-log-level=warn
 ```
 User → MyApp.main()
   → ProviderScope 初始化
-    → Aria2Daemon.provider:
-        1. BinaryResolver 找到 aria2c 路径
-        2. ConfigBuilder 写出 aria2.conf
-        3. 选择空闲端口（默认 6800，冲突时 +1 重试）
-        4. Process.start(aria2c, ['--conf-path', '<path>'])
-        5. 等待 RPC 端口可连接（最多 5s，每 100ms 重试）
-        6. 创建 WS Transport + Aria2Client
-        7. 调用 aria2.getVersion 验证连通
+    → aria2DaemonProvider:
+        本机模式：
+        1. Aria2NativeSession.open(options)         # FFI 加载 libaria2，注入 options
+        2. 启动 worker isolate 持续驱动事件循环      # ADR-008
+        3. 包装为 LibraryDaemon + Aria2InProcessTransport + Aria2Client
+        4. 调用 aria2.getVersion 验证连通
+        远程模式：
+        1. 解析用户填入的 endpoint + secret
+        2. WebSocket 连接 + HTTP fallback
+        3. Aria2Client.getVersion 验证连通
     → DaemonState = ready
   → 路由到 TaskListPage
 ```
+
+> ADR-010 之前还有第三条路径——`LocalDaemon` spawn `aria2c` 子进程 + 选空闲端口 + 写 `aria2.conf` + 等 RPC 就绪——已经整体移除。
 
 ### 4.2 新建下载任务
 
@@ -404,11 +388,13 @@ class BtDownloadComplete extends Aria2Notification { final String gid; }
 
 | 平台 | 关键差异 |
 | --- | --- |
-| macOS | App 沙盒启用；entitlements 含 `network.client`、用户自选目录与 Downloads 写权限；子进程 RPC 需 `network.server` |
-| Windows | `aria2c.exe`；UAC 弹窗（自启时） |
-| Linux | 多种发行版打包格式：deb / rpm / AppImage |
-| Android | aria2c 放入 `assets/`，启动时拷贝到 `getApplicationSupportDirectory()` 并 `chmod 755`；用 ForegroundService 守护 |
-| iOS | 不允许 fork/exec，因此默认引擎为 **内嵌 libaria2（ADR-007）**；同步支持远程 RPC。子进程兜底在 iOS 上自动不可用。|
+| macOS | App 沙盒启用；entitlements 含 `network.client`、`network.server`（接收 BT 入站连接 / metadata 服务）、用户自选目录与 Downloads 写权限 |
+| Windows | 桌面平台无 sandbox；prebuilt libaria2 通过 mingw 交叉编译生成 |
+| Linux | 多种发行版打包格式：deb / rpm / AppImage；libaria2 静态链入 app binary |
+| Android | libaria2 通过 NDK 交叉编译为 `.so`，FFI 直接 dlopen；用 ForegroundService 守护下载（ADR-009） |
+| iOS | 不允许 fork/exec；libaria2 通过 `xcframework` 静态链接进 app 主二进制（ADR-007）。沙盒严格，下载只能写应用 Documents 等沙箱目录 |
+
+> ADR-010 后所有平台共用一条本机路径——`LibraryDaemon`。子进程引擎与对应的 Android/桌面 binary staging 已经从源码与构建脚本中整体移除。
 
 平台抽象通过 `lib/core/platform/` 暴露统一接口。
 
@@ -463,12 +449,13 @@ CI 跑 `flutter analyze` + `flutter test`；集成测试在本地或自托管 ru
 | ADR-007 | **所有原生平台默认内嵌 libaria2（Dart FFI）**；保留子进程作为兜底/调试通道 | 继续 ADR-001 子进程模式 | 进程数 ↓、iOS 沙盒可用、启动时间 ↓、可同步事件 | **生效（默认引擎）** |
 | ADR-008 | libaria2 FFI 全部委派给独立 worker isolate（含事件循环 `run_once`） | 在主 isolate 同步调用 + Timer 驱动 `run_once` | UI 线程不再被 `eventPoll_->poll(refreshInterval=1s)` 阻塞，避免数百毫秒抖动 | **生效** |
 | ADR-009 | 桌面 / Android 后台保活与控制信号集中到 `MobileBackgroundBinding` / `TrayExitBinding`，统一消费 `globalStatStreamProvider` | 各 daemon 自行调用平台 API；UI 页面驱动通知 | 解耦 daemon 与平台外壳；切换页面、首页未打开时托盘 tooltip / 前台服务通知仍能持续刷新；通知按钮可在 Flutter Engine 已初始化的前提下直接控制 aria2 | **生效** |
+| ADR-010 | **移除 aria2c 子进程引擎**：`LocalDaemon` / `BinaryResolver` / `Aria2ConfigBuilder` / Android `assets/android/<abi>/aria2c` staging / `bin/native_messaging_host.dart` / `bin/rpc_add_uri.dart` 等子进程相关代码全部删除；`AppSettings.localEngine` / `fallbackToSubprocess` / `aria2BinaryPath` 字段一并撤销 | 保留子进程引擎作为 FFI 失败时的"安全网" | prebuilt libaria2 在每个发布目标上都已经稳定可用且 ADR-008 worker isolate 解决了主线程阻塞；子进程引擎要再维护一份 staging 脚本 / Android assets / Windows binary / native messaging host / Chrome 扩展安装脚本，单平台 binary 资源 +3~12 MB；收益已远低于成本。需要外部 aria2c 的用户改用「远程 RPC」连接模式 | **生效** |
 
 ### ADR-007：默认改用内嵌 libaria2（Dart FFI）
 
 - **背景**：ADR-001 选择子进程模型，但带来 iOS 沙盒不可用、桌面/移动需附带额外二进制、子进程崩溃感知滞后等问题。
 - **决策**：在所有原生平台（macOS / Linux / Windows / Android / iOS）默认使用 [packages/aria2_native](../packages/aria2_native/) FFI 插件，把 libaria2 静态链接进应用进程；通过 [`LibraryDaemon`](../lib/aria2/daemon/library_daemon.dart) + [`Aria2InProcessTransport`](../lib/aria2/client/in_process_transport.dart) 把 JSON-RPC 等价调用翻译为 libaria2 C ABI。
-- **兜底**：[`LocalDaemon`](../lib/aria2/daemon/local_daemon.dart)（aria2c 子进程）保留为可选引擎，由设置项 `LocalEngine.subprocess` 切换；`AppSettings.fallbackToSubprocess` 控制 FFI 初始化失败时是否自动回退。
+- **兜底（已在 ADR-010 移除）**：曾存在的 `LocalDaemon`（aria2c 子进程）+ `AppSettings.fallbackToSubprocess` 自动回退在 ADR-010 中整体撤销；本机模式现在唯一选项即 `LibraryDaemon`。
 - **Web**：仍仅支持 [`RemoteDaemon`](../lib/aria2/daemon/remote_daemon.dart)（浏览器无法运行原生代码）。
 - **绑定层**：libaria2 是 C++ API，无法直接被 Dart FFI（仅 C ABI）绑定，故在 [packages/aria2_native/src/aria2_ffi.{h,cc}](../packages/aria2_native/src/aria2_ffi.h) 提供 `extern "C"` 薄封装；状态/选项序列化为 JSON 字符串以复用 [`Aria2Client`](../lib/aria2/client/aria2_client.dart) 原有解析路径。
 - **事件**：libaria2 的 `DownloadEventCallback` 经 `NativeCallable.listener` 跨线程推入 Dart `Stream`，再适配为现有的 [`Aria2NotificationSource`](../lib/aria2/client/ws_listener.dart) 形态，UI 层零改动。
@@ -489,5 +476,25 @@ CI 跑 `flutter analyze` + `flutter test`；集成测试在本地或自托管 ru
 - **Android Service**：[`Aria2KeepAliveService`](../android/app/src/main/kotlin/cloud/iothub/aria2down/Aria2KeepAliveService.kt) 接受 `ACTION_START` / `ACTION_UPDATE` / `ACTION_PAUSE_ALL` / `ACTION_RESUME_ALL` / `ACTION_QUIT`；通知按钮通过 `PendingIntent.getService` 触发，service 收到控制 action 后 `startActivity(MainActivity, action=…)` 把信号转给 Flutter；活跃任务时持 `PARTIAL_WAKE_LOCK`，空闲释放，30 min 兜底超时。
 - **iOS**：[`AppDelegate.swift`](../ios/Runner/AppDelegate.swift) 进入后台时 `beginBackgroundTask` 延长存活并提交 `BGAppRefreshTask` / `BGProcessingTask`；`Info.plist` 声明 `UIBackgroundModes=fetch,processing` 与 `BGTaskSchedulerPermittedIdentifiers`。
 - **静默启动**：[`AppSettings.startMinimized`](../lib/data/app_settings.dart) 在 [`main.dart`](../lib/main.dart) 提前读取，桌面 `initDesktopShell(startMinimized: true)` 立即 `windowManager.hide()`，与 `launchAtStartup` 组合实现「登录即托盘待命」。
+
+### ADR-010：移除 aria2c 子进程引擎
+
+- **背景**：ADR-007 把内嵌 libaria2 设为默认，但保留了 `LocalDaemon`（spawn `aria2c` 子进程 + 写 `aria2.conf` + 等 RPC 就绪）作为兜底。一年过去后实际情况：
+  - prebuilt libaria2 在 macOS / Linux / Windows / Android / iOS 全平台都已经稳定可用；
+  - ADR-008 worker isolate 解决了 `aria2::run(RUN_ONCE)` 阻塞 UI 线程的问题；
+  - 子进程引擎要单独维护 `binary_resolver.dart` / `aria2_config_builder.dart` / Android `assets/android/<abi>/aria2c` staging / Windows `stage_windows_aria2.ps1` / `bin/native_messaging_host.dart` / `bin/rpc_add_uri.dart` / Chrome 扩展 native messaging 安装脚本 / `local_rpc_credentials.dart`；
+  - APK 体积单独为 4 个 ABI 各拷一份 `aria2c` 二进制（约 +12 MB）；
+  - Release CI 流程额外跑一遍 `build_aria2.sh` + `stage_aria2c.sh`；
+  - 实际触发回退的场景几乎没有报告——prebuilt 缺失时改用远程 RPC 的引导路径已经成熟。
+- **决策**：完整移除子进程引擎及其所有附属代码与资源：
+  - **代码**：`lib/aria2/daemon/local_daemon.dart`、`lib/aria2/daemon/local_daemon_paths.dart`、`lib/aria2/binary/binary_resolver.dart`、`lib/aria2/binary/android_binary_extractor.dart`、`lib/aria2/config/aria2_config_builder.dart`、`lib/core/local_rpc_credentials.dart`、`lib/core/add_uri_via_local_rpc.dart`、`bin/native_messaging_host.dart`、`bin/rpc_add_uri.dart`、`bin/cli_demo.dart`、`Aria2BinaryNotFoundException`。
+  - **数据**：`AppSettings.localEngine` / `fallbackToSubprocess` / `aria2BinaryPath` 字段与对应 SharedPreferences key 删除；`settings_export.dart` 静默忽略历史 JSON 中的这些字段以保留旧备份的可导入性；`SettingsRepository.save()` 主动 `remove` 老 key 完成迁移。
+  - **UI**：设置页删除引擎二选一 SegmentedButton、aria2c 路径输入框、`fallbackToSubprocess` switch。`ConnectionMode.local` 下只展示「内嵌库（libaria2）」说明。「复制 RPC 配置给浏览器扩展」仅在远程模式下露出，直接复用用户填的 endpoint+secret 生成 JSON。
+  - **Assets / scripts**：`assets/android/`（含 README + binary placeholder）、`scripts/build_aria2.sh`、`scripts/build_android_aria2_docker.sh`、`scripts/build_bundle_with_aria2.sh`、`scripts/stage_android_aria2.sh`、`scripts/stage_aria2c.sh`、`scripts/stage_windows_aria2.ps1`、`scripts/install_native_messaging_host.sh`、`extensions/native-messaging/` 整目录。
+  - **CI**：`.github/workflows/build-aria2.yml` 中所有 `*-aria2c` job 移除；`flutter.yml` 与 `release.yml` 不再下载 / 编译 / 拷贝 `aria2c` 到产物 bundle。
+  - **i18n**：删除 `engineSubprocess` / `engineSubprocessDesc` / `engineSubprocessShort` / `engineFallbackToSubprocess(Desc)` / `engineUnavailableBanner` / `engineInitFailed` / `aria2BinaryPath` / `aria2BinaryHint` / `restartAria2Hint` / `daemonErrorBinaryNotFound` 共 11 个 key（中英）。
+- **替代路径**：需要在外部运行 aria2c（譬如远程 NAS、Docker 容器内的下载机、自定义参数的 aria2c）的用户改用「远程 RPC」连接模式，输入 endpoint + secret 即可。Chrome 扩展也指向远程 endpoint，体验与之前的子进程模式完全等价。
+- **prebuilt 不可用**：`LibraryDaemon.create` 内部检测 prebuilt libaria2 缺失时直接抛 `Aria2NativeUnavailableException`；设置页有「库引擎运行在功能受限模式」红条引导用户重编 prebuilt，daemon 错误屏也明确提示改用远程 RPC。
+- **可恢复性**：本次清理记录在 git 历史中，未来若发现极端场景下确实需要子进程兜底，可以从 git 历史恢复对应模块。但当前没有任何已知场景需要这条路径。
 
 > 后续重要决策按 `ADR-NNN` 编号继续追加。

@@ -88,10 +88,51 @@ void main() {
     final files = shape['files'] as List;
     expect(files.length, 1);
     final f = files.single as Map;
-    expect(f['path'], 'movie.mkv'); // pickTaskName 用得上
+    // 历史快照详情页的「打开下载位置」依赖这条：把 dir + name 拼成完整路径，
+    // resolveRevealPath / revealPathInFileManager 才能精确选中真实文件；
+    // 文件不在了的话 reveal 内部会再回退到 dirname == dir。pickTaskName
+    // 仍能从 basename 拿到 "movie.mkv" 当详情页 AppBar 标题。
+    expect(f['path'], '/Downloads/movie.mkv');
     final uris = f['uris'] as List;
     expect(uris.length, 2);
     expect((uris.first as Map)['uri'], 'https://a/movie.mkv');
+  });
+
+  test('toDetailShape 缺 dir 时退回 name（保持向后兼容旧历史记录）', () {
+    // 老版本未持久化 dir 字段，反序列化后 entry.dir == null。这种历史
+    // 进详情页时 path 仍取 name，避免拼出 "/name" 这种伪绝对路径。
+    final e = TaskHistoryEntry(
+      gid: 'g',
+      name: 'legacy.bin',
+      status: 'complete',
+      totalLength: 1,
+      completedLength: 1,
+      recordedAt: DateTime.utc(2025, 1, 1),
+      dir: null,
+    );
+    final shape = e.toDetailShape();
+    final f = (shape['files'] as List).single as Map;
+    expect(f['path'], 'legacy.bin');
+    expect(shape.containsKey('dir'), isFalse);
+  });
+
+  test('toDetailShape 缺 name 时只暴露 dir 让目录仍可被打开', () {
+    // 边界场景：本地历史 name 字段为空（不应该出现，但持久化文件可能被
+    // 手工编辑）。此时 path 退化为空字符串，但顶层 dir 仍保留——任务详情
+    // 页 resolveRevealPath 会回退到 dir。
+    final e = TaskHistoryEntry(
+      gid: 'g',
+      name: '',
+      status: 'complete',
+      totalLength: 1,
+      completedLength: 1,
+      recordedAt: DateTime.utc(2025, 1, 1),
+      dir: '/Volumes/D',
+    );
+    final shape = e.toDetailShape();
+    expect(shape['dir'], '/Volumes/D');
+    final f = (shape['files'] as List).single as Map;
+    expect(f['path'], '');
   });
 
   test('toDetailShape 在 BT 任务上把 infoHash 暴露到顶层与 bittorrent.info', () {

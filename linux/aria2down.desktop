@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=aria2down
+Name=Aria2Down
 Comment=Cross-platform download client powered by aria2
 GenericName=Download Manager
 Exec=aria2down %U

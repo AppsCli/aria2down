@@ -1,7 +1,7 @@
 // 验证 libraryCapabilitiesProvider 在三种 daemon 下的返回行为：
 //
 // 1. LibraryDaemon → 暴露真实 capability 集合（可能为空集合 = 旧 prebuilt）。
-// 2. RemoteDaemon / LocalDaemon → 返回完整集合，UI 不展示降级提示。
+// 2. RemoteDaemon → 返回完整集合，UI 不展示降级提示。
 //
 // 这里不实例化真实 daemon（会拉起 native worker / Process）；用 fake daemon
 // 覆盖 aria2DaemonProvider，断言 provider 路径。

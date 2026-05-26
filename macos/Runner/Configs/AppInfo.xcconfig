@@ -5,7 +5,11 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = aria2down
+//
+// macOS 应用包名 `.app` 与 Dock / Finder 显示名都跟随此值——保持 "Aria2Down"
+// 与各平台显示名一致。bundle id 仍走全小写的反向域名约定，与显示名解耦
+// 后避免影响 entitlements / TLS app group 等已发布的标识符。
+PRODUCT_NAME = Aria2Down
 
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = cloud.iothub.aria2down

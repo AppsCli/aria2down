@@ -26,15 +26,6 @@ final class Aria2TransportException extends Aria2Exception {
   String toString() => 'Aria2TransportException: $message (cause: $cause)';
 }
 
-final class Aria2BinaryNotFoundException extends Aria2Exception {
-  const Aria2BinaryNotFoundException()
-    : super(
-        '未找到 aria2c：请安装 aria2、在设置中指定路径，'
-        '或将编译好的二进制放入 assets/android/<abi>/（Android）或应用同目录（桌面）。'
-        '也可改用远程 RPC。',
-      );
-}
-
 final class Aria2DaemonException extends Aria2Exception {
   const Aria2DaemonException(super.message, {this.exitCode});
 

@@ -4,6 +4,130 @@
 
 ## [Unreleased]
 
+### 修改（统一应用显示名为 `Aria2Down`）
+
+之前各平台用户可见的应用名是 `aria2down`（Android）/ `Aria2down`（iOS）/ `aria2down`（macOS / Windows / Linux），大小写不一致。本次把**用户可见的应用名**全部统一为大写驼峰 `Aria2Down`；**技术标识符**（binary filename / package id / Dart package name / URL scheme / MethodChannel name / 文件系统状态目录）刻意保持原 lowercase，避免破坏升级路径与平台命名约定。
+
+- **Android**：[`AndroidManifest.xml`](android/app/src/main/AndroidManifest.xml) 全部 9 处 `android:label="aria2down"` → `Aria2Down`（应用图标下方 launcher 标签 + 所有 intent-filter 的可见 label）。`applicationId / package` 与 `cloud.iothub.aria2down` MethodChannel 名不动。
+- **iOS**：[`ios/Runner/Info.plist`](ios/Runner/Info.plist) `CFBundleDisplayName: Aria2down` → `Aria2Down`；`CFBundleName: aria2down` → `Aria2Down`；`NSLocalNetworkUsageDescription` 中的应用名同步大写。URL scheme `aria2down://` 与 bundle id `cloud.iothub.aria2down` 不动。
+- **macOS**：[`AppInfo.xcconfig`](macos/Runner/Configs/AppInfo.xcconfig) `PRODUCT_NAME = aria2down` → `Aria2Down`。Dock / Finder / 关于本应用窗口显示的全是 `Aria2Down`；`.app` 包名跟随变为 `Aria2Down.app`。`PRODUCT_BUNDLE_IDENTIFIER = cloud.iothub.aria2down` 不动（entitlements / TLS app group / launch services 注册都靠这个稳定 id）。
+- **Windows**：[`Runner.rc`](windows/runner/Runner.rc) `FileDescription` / `ProductName` 改为 `Aria2Down`（资源管理器 → 文件属性 → 详情 + PE 信息工具显示）；`InternalName` / `OriginalFilename` 保持 `aria2down` / `aria2down.exe`（与 `BINARY_NAME = aria2down` 对齐，不破坏 installer / 关联注册脚本）。[`main.cpp`](windows/runner/main.cpp) 初始 `window.Create(L"Aria2Down", ...)` 让 Flutter 接管前的闪屏标题就是大写驼峰；`SendAppLinkToInstance(L"aria2down")` 是单实例检测的 mutex 名，保持小写避免老进程跨升级找不到匹配。
+- **Linux**：[`my_application.cc`](linux/runner/my_application.cc) `gtk_header_bar_set_title` + `gtk_window_set_title` 都改 `Aria2Down`；[`aria2down.desktop`](linux/aria2down.desktop) 的 `Name=` 字段同步。`BINARY_NAME = aria2down` / `Exec=aria2down %U` / `TryExec=aria2down` / `Icon=aria2down` 不动（.deb / AppImage 命名约定都是 lowercase）。
+- **Flutter 层**：[`app.dart`](lib/app/app.dart) 三个 `MaterialApp.title: 'Aria2Down'`（影响桌面端任务栏 / Android task switcher 卡片标题）+ `_DaemonLoadingScreen` 启动闪屏中的 `'Aria2Down'` 字面量。
+- **l10n（自动同步到 13 种语言）**：[`app_en.arb`](lib/l10n/app_en.arb) / [`app_zh.arb`](lib/l10n/app_zh.arb) 中包含应用名的 7 个 key 全部改大写驼峰：`appTitle` / `aboutTitle` / `welcomeRemoteTitle` / `keepAliveTitle` / `trayToolTip` / `trayToolTipStats` / `trayToolTipOffline` / `launchAtStartupDesc`。`flutter gen-l10n` 自动同步到全部 13 个 `app_localizations_<locale>.dart`（未翻译 locale fallback 到英文模板，里面已经是大写）。
+- **保留的技术标识符**（user-invisible）：
+  - `package:aria2down/...` Dart import 路径 / `name: aria2down` pubspec —— Dart package 名必须 lowercase + underscore
+  - `kAriaScheme = 'aria2down'` + `aria2down://` URL scheme —— 浏览器与系统已注册的 deep link scheme，改动会让 v0.x 安装的设备失去现有快捷方式
+  - `MethodChannel('cloud.iothub.aria2down/keep_alive')` —— Android native 端硬编码的 channel id
+  - `Directory(p.join(base.path, 'aria2down'))` 状态目录 —— 改名后老用户的 aria2.session / 历史 JSON / 日志全找不到
+- **测试**：所有 155 个用例（含 13 种 locale round-trip + 主题色 + 历史删除 + GID hex 等）继续通过。`flutter analyze` 无 issue；`dart format` 通过。
+
+### 新增（10 种主流国际化语言支持：日 / 韩 / 繁中 / 西 / 法 / 德 / 俄 / 葡 / 阿 / 越）
+
+之前应用只支持英文与简体中文。本次新增 10 种主流国际化语言，覆盖东亚 / 欧洲 / 中东 / 东南亚四个主要语言区：
+
+| 语言 | 代码 | 备注 |
+|---|---|---|
+| 日本語 | `ja` | |
+| 한국어 | `ko` | |
+| 繁體中文 | `zh_TW` | Flutter 用 `Locale('zh', 'TW')` 双段匹配 |
+| Español | `es` | |
+| Français | `fr` | |
+| Deutsch | `de` | |
+| Русский | `ru` | |
+| Português | `pt` | |
+| العربية | `ar` | **RTL** 语言，Flutter 自动从 Locale 推导文字方向 |
+| Tiếng Việt | `vi` | |
+
+- **[`AppLocalePreference`](lib/data/app_settings.dart) 增加 10 个 enum 值**：`zhTw / ja / ko / es / fr / de / ru / pt / ar / vi`。`localeOrNull` 在 switch 表里逐一映射，繁体中文走 `Locale('zh', 'TW')` 双段。Flutter `LocalizationsDelegate.isSupported` 会做 languageCode + countryCode 匹配。
+- **10 个新 `.arb` 文件**：[`lib/l10n/app_<locale>.arb`](lib/l10n/) 每个翻译约 41 个高频核心 key——导航 (`navTasks / navAdd / navSettings`)、5 个 Tab (`tabActive / tabWaiting / tabCompleted / tabStopped / tabHistory`)、4 个状态 (`statusPaused / statusComplete / statusError / statusRemoved`)、5 个空状态、操作按钮 (`addButton / pasteFromClipboard / pasteAndAdd / pickTorrent / pickMetalink / refreshTasks / save / retry / delete / openFolder / dialogCancel / dialogConfirm`)、设置主标题 (`appearance / theme / themeSystem / themeLight / themeDark / language / langSystem / settingsConnection / connectionLocal / connectionRemote`)。未翻译的 key 会**自动 fallback 到模板英文**（Flutter `gen-l10n` 行为）——意味着 UI 大部分文字是本地化的，少量长说明仍走英文，方便后续贡献者按需补全。
+- **新增 11 个语言 label key**（中英 template）：`langChineseSimplified / langChineseTraditional / langJapanese / langKorean / langSpanish / langFrench / langGerman / langRussian / langPortuguese / langArabic / langVietnamese`。各语言名按本地命名（"日本語" 而非 "Japanese"），让用户在不切换语言之前就能识别选项；删除老的 `langChinese`（被 `langChineseSimplified` 取代）。
+- **[SettingsPage](lib/features/settings/settings_page.dart) 语言选择从 SegmentedButton 改 `DropdownButtonFormField`**：13 个语言水平 SegmentedButton 装不下，下拉框排版更合理；保留「跟随系统」在顶部分组。
+- **RTL 自动适配**：阿拉伯语 `ar` Flutter 框架会从 `Locale('ar')` 自动推导 `TextDirection.rtl`，AppBar、抽屉、列表等控件都会按 RTL 镜像，无需额外代码。
+- **测试**：
+  - [`test/data/app_locale_preference_test.dart`](test/data/app_locale_preference_test.dart) **15 个用例**：1 个守护 `localeOrNull` 全覆盖（防御性 length check 保证未来新增 enum 值时漏改测试会立即报错）+ 13 个 SettingsExport round-trip（system / en / zh / 新增 10 种各 1 个）+ 1 个 system → null。
+  - 全套 `flutter test` 155 通过、1 个无关 skip。
+- **CI/分析**：`flutter analyze` 无 issue；`dart format` 通过。`flutter gen-l10n` 报「`vi/zh_TW` 等 297 untranslated message(s)」是预警（Flutter 内置 fallback 到 template 行为），不影响构建。
+- **后续完善**：贡献者可以单独翻译某种语言的完整 arb（覆盖剩余 ~280 个 key 比如错误提示、设置长说明等），无需修改路由 / enum / UI 代码。
+
+### 新增（主题色设置：8 个预设色板 + 自定义十六进制）
+
+之前应用主题只有「跟随系统 / 浅色 / 深色」三选一，主色固定为品牌默认蓝 `#1565C0`。这次给用户开放完整的种子色控制——Material 3 的 `ColorScheme.fromSeed` 会以该色为基础推导整套 light / dark 调色板，所有 Card / 进度条 / FAB / 选中态等都会跟着变。
+
+- **[`buildAria2downTheme`](lib/app/theme.dart) 加 `seedColor` 参数**：默认导出 `kDefaultSeedColor = Color(0xFF1565C0)`（之前内联在代码里的"品牌蓝"）；不传参数 = 用品牌默认。[`app.dart`](lib/app/app.dart) 在 `Aria2downApp.build` 中把 `settings.seedColorArgb` 一次解析成 `Color?`，三个 MaterialApp 分支（daemon loading / error / data）共用。
+- **[`AppSettings.seedColorArgb`](lib/data/app_settings.dart) (`int?`)**：`null` = 跟随品牌默认。持久化为 ARGB int 而非 hex 字符串，避免 SharedPreferences / JSON 中出现大小写差异和 `#` 前缀解析歧义。`copyWith` 新增 `clearSeedColor` flag 让设置页能"还原默认"。
+- **[`SettingsRepository`](lib/data/settings_repository.dart)**：新增 SharedPreferences key `settings.theme_seed_color_argb`，复用现有 `_setIntOrRemove`；`resetToDefaults` 同步把该 key 列入清单。
+- **[`SettingsExport`](lib/data/settings_export.dart)**：JSON 中新增 `seedColorArgb` 字段。`_intOrNull` 兼容 `int` / `num` / `String` 三种形态——老 export 可能直接存 int，手编 JSON 可能存字符串，浮点形式（`4.28e9`）也兼容；非法输入静默退化到 `null` 不破坏整次导入。
+- **[SettingsPage 主题色选区](lib/features/settings/settings_page.dart)**：紧跟「主题模式」SegmentedButton 之后，新增 [`_SeedColorPicker`](lib/features/settings/settings_page.dart) 圆点网格：第 1 个是「默认」（refresh 图标）、中间 8 个手挑的种子色（红 / 粉 / 紫 / 品牌蓝 / 青绿 / 森林绿 / 橄榄黄 / 暖橙，按色相环排）、最后一个是「自定义...」（colorize 图标）弹对话框收 `#RRGGBB` / `#AARRGGBB`。选中态用边框圈 + 中心 ✓ 双重高亮；自定义对话框带 `FilteringTextInputFormatter` 仅允许 hex 字符 + 输入校验。
+- **l10n**：新增 `themeSeedColor` / `themeSeedColorBody` / `themeSeedColorDefault` / `themeSeedColorCustomTitle` / `themeSeedColorCustomBody` / `themeSeedColorCustomInvalid` / `dialogConfirm` 共 7 个 key（中英）。
+- **测试**：
+  - [`test/app/theme_seed_color_test.dart`](test/app/theme_seed_color_test.dart) 新增 3 个用例覆盖「不传 seed 等价 kDefaultSeedColor」「不同 seed 产出不同 primary」「同 seed light/dark 各自适配亮度」。
+  - [`test/data/settings_export_test.dart`](test/data/settings_export_test.dart) 新增 3 个用例覆盖 seedColorArgb round-trip / int|num|String 三种形态兼容 / 无效字符串退化到 null。
+- **验证**：`flutter analyze` 无 issue；`flutter test` 全 140 通过、1 无关 skip；`dart format` 通过。
+
+### 重大变更（ADR-010：移除 aria2c 子进程引擎）
+
+ADR-007 把内嵌 libaria2 设为默认后，本次彻底移除作为兜底的 aria2c 子进程引擎。本机模式现在唯一选项是 `LibraryDaemon`（FFI 内嵌 libaria2），外部 aria2c 改用「远程 RPC」连接。详细决策见 [docs/ARCHITECTURE.md ADR-010](docs/ARCHITECTURE.md#adr-010移除-aria2c-子进程引擎)。
+
+- **删除的代码**：[`lib/aria2/daemon/local_daemon.dart`](lib/aria2/daemon/local_daemon.dart)、`lib/aria2/daemon/local_daemon_paths.dart`、`lib/aria2/binary/binary_resolver.dart`、`lib/aria2/binary/android_binary_extractor.dart`、`lib/aria2/config/aria2_config_builder.dart`、`lib/core/local_rpc_credentials.dart`、`lib/core/add_uri_via_local_rpc.dart`、`bin/native_messaging_host.dart`、`bin/rpc_add_uri.dart`、`bin/cli_demo.dart`；[`Aria2BinaryNotFoundException`](lib/aria2/client/aria2_exceptions.dart) 异常类型；`ActiveEngine.subprocess` 枚举；`platform_hints.supportsSubprocessLocalEngine`。
+- **删除的设置字段**：[`AppSettings.localEngine`](lib/data/app_settings.dart) / `fallbackToSubprocess` / `aria2BinaryPath` 与对应 SharedPreferences key（`settings.local_engine` / `settings.fallback_to_subprocess` / `settings.aria2_binary_path`）。`settings_export.dart` 静默忽略历史 JSON 中的这些字段以保留旧备份的可导入性；`SettingsRepository.save()` 主动 `remove` 老 key 完成迁移。
+- **SettingsPage UI**：删除引擎二选一 SegmentedButton、aria2c 路径输入框、`fallbackToSubprocess` switch。`ConnectionMode.local` 下只展示「内嵌库（libaria2）」说明。「复制 RPC 配置给浏览器扩展」改为仅在远程模式下露出，直接用用户填的 endpoint + secret 生成扩展 JSON（不再依赖 `rpc.secret` 文件）。
+- **删除的 assets / scripts**：`assets/android/`（含 README + binary placeholder）、`scripts/build_aria2.sh`、`scripts/build_android_aria2_docker.sh`、`scripts/build_bundle_with_aria2.sh`、`scripts/stage_android_aria2.sh`、`scripts/stage_aria2c.sh`、`scripts/stage_windows_aria2.ps1`、`scripts/install_native_messaging_host.sh`、`extensions/native-messaging/` 整目录。`pubspec.yaml` 同步剔除 `assets/android/README.md` 引用。
+- **CI**：[`.github/workflows/build-aria2.yml`](.github/workflows/build-aria2.yml) 中所有 `*-aria2c` job 删除并改名为「Build libaria2」；[`.github/workflows/flutter.yml`](.github/workflows/flutter.yml)、[`.github/workflows/release.yml`](.github/workflows/release.yml) 不再下载 / 编译 / 拷贝 `aria2c` 到产物 bundle，改为只编 libaria2 prebuilt（编不出来时 daemon 直接抛错引导改用远程 RPC）。
+- **i18n**：删除 11 个 key（中英）：`engineSubprocess` / `engineSubprocessDesc` / `engineSubprocessShort` / `engineFallbackToSubprocess(Desc)` / `engineUnavailableBanner` / `engineInitFailed` / `aria2BinaryPath` / `aria2BinaryHint` / `restartAria2Hint` / `daemonErrorBinaryNotFound`；`engineLibraryDesc` / `copyRpcConfigSubtitle` / `daemonErrorWebLocal` 重写以反映新语义。
+- **删除的测试**：`test/aria2/binary_resolver_test.dart`、`test/aria2/aria2_config_builder_test.dart`、`test/integration/aria2_e2e_subprocess_test.dart`、`test/widget/settings_engine_select_test.dart`、`test/core/local_rpc_credentials_test.dart`。
+- **docs**：[`AGENTS.md`](AGENTS.md) 删去 `LocalDaemon` 与 native messaging 描述；[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 总览图 / 模块树 / 启动时序 / 跨平台差异 / ADR 表全部同步；新增 ADR-010 详细记录；[`docs/BUILD_ARIA2.md`](docs/BUILD_ARIA2.md) 改为弃用 banner 指向 `BUILD_LIBARIA2.md`。
+- **替代路径**：需要在外部运行 aria2c（远程 NAS、Docker 容器内的下载机、自定义参数的 aria2c）的用户改用「远程 RPC」连接模式，输入 endpoint + secret 即可，体验与之前的子进程模式完全等价。
+- **prebuilt 不可用时**：`LibraryDaemon.create` 内部检测 prebuilt libaria2 缺失会直接抛 `Aria2NativeUnavailableException`；设置页有「库引擎运行在功能受限模式」红条引导重编 prebuilt，daemon 错误屏明确提示改用远程 RPC。
+- **验证**：`flutter analyze` 仅 2 个无关 transitive dependency info；`flutter test` 全 134 通过、1 个无关 skip；`dart format` 通过。
+
+### 新增（任务列表拆出独立「已完成」Tab）
+
+用户反馈："已完成的下载塞在「已停止」Tab 里跟一堆 .torrent 解析失败、加错链接的报错混在一起，找上次下完的电影要往下翻一长串失败记录。"
+
+- **TabController 长度 4→5**：[`task_list_page.dart`](lib/features/tasks/task_list_page.dart) 现在的 Tab 顺序为 **active / waiting / completed (new) / stopped / history**，符合时间流向（进行中 → 等待 → 已完成 → 失败或被取消 → 本地历史）。
+- **共享数据源、UI 分流**：`_stopped` 字段仍是 aria2 `tellStopped` 的原始返回（complete + error + removed 混合），通过 [`task_list_split.dart`](lib/core/task_list_split.dart) 的两个互补 helper 拆成两个视图——`_completedView`（`status == 'complete'`）与 `_stoppedView`（其余 status，包含未来未知 status 以避免任务隐身）。paged 加载（`tellStopped` num 翻倍）、`TaskHistoryRecorder.onStoppedList` 历史落库、batch action（清空 stopped 结果 / 强制移除 stopped 任务）仍走完整 `_stopped`，没有额外 RPC。
+- **底部「加载更多」footer 在 completed / stopped 两个 Tab 都展示**：两个 Tab 共享同一份 paged 数据，只挂在 stopped 会让用户在 completed Tab 误以为已经看到了全部。
+- **AppBar 与 PopupMenu 索引漂移**：History 专属的「清空全部历史」红按钮 + 「导出 / 导入历史」菜单项原本绑 `_tabs.index == 3`，拆 Tab 后漂到 `index == 4`——避免在新插入的 Completed Tab 误触发本地历史清空（误触发会一次性删光所有持久化记录，不可恢复）。
+- **l10n**：新增 `tabCompleted` / `emptyCompleted` 两组 key（中英）。
+- **测试**：[`test/core/task_list_split_test.dart`](test/core/task_list_split_test.dart) 新增 6 个用例覆盖 `filterCompletedTasks` / `filterStoppedTasks` 的常规路径 + 空 status / 缺字段 / 未知 status / 两路互补不漏不重。`flutter analyze` 无 issue；`flutter test` 全部 144 通过、1 无关 skip；`dart format` 通过。
+
+### 新增（每次下载都让用户选择保存位置，各平台沙箱权限对齐）
+
+用户反馈："能不能每次开下载都让我选保存位置？iOS/Android 也得能用，别 SAF URI 又把 aria2 搞挂。"
+
+实现按各平台沙箱模型做了差异化处理：
+
+- **AppSettings 新增 `askDownloadDirEachTime`**：[`app_settings.dart`](lib/data/app_settings.dart) / [`settings_repository.dart`](lib/data/settings_repository.dart) / [`settings_export.dart`](lib/data/settings_export.dart) 全链路持久化，默认 `false`（老用户升级后不会突然被弹窗打断）。
+- **新增 `lib/core/download_dir_picker.dart`**：跨平台目录选择统一入口 `pickDownloadDirectory(BuildContext, {initialDirectory})`：
+  - **桌面（macOS / Win / Linux）**：直接调 [`file_selector.getDirectoryPath`](https://pub.dev/packages/file_selector) 弹原生目录选择器。**macOS sandbox** 已经声明 `com.apple.security.files.user-selected.read-write` + `com.apple.security.files.downloads.read-write`（见 [Release.entitlements](macos/Runner/Release.entitlements)），用户选中的目录与系统 Downloads 都能直接由 aria2 写入，无需额外书签。Win / Linux 无 sandbox 约束。
+  - **移动端（Android / iOS）**：**不弹 SAF**——`content://com.android.externalstorage.documents/tree/...` 这种 tree URI 喂给 libaria2 会在文件分配阶段抛错（aria2 不识别 SAF URI）。取而代之弹 `_MobileDownloadDirSheet`，列出**沙箱内可写**候选目录 + 子目录建立 + 自定义路径输入：
+    - Android: `getExternalStorageDirectory()`（应用专属外部存储 `/sdcard/Android/data/<pkg>/files`，**卸载时系统会清空**——UI 上明确提示）+ `getApplicationDocumentsDirectory()`
+    - iOS: `getApplicationDocumentsDirectory()`（在「文件」App 中可见）+ `getApplicationSupportDirectory()`
+- **`resolveDownloadDirForTask` 顶级 helper**：抽出"下次任务最终 `dir` 选项"的优先级解析（`overrideDir`（askEachTime 弹窗 / picker 按钮）> `manualField`（高级选项手填）> `globalDefault`（设置页全局默认））。trim 后空串视为"未设置"继续往下找，让用户在弹窗里点取消或留空都不会"显式覆盖"全局默认。
+- **AddTaskPage 改造**：
+  - 高级选项新增「下载到（本次任务）」TextField + suffix 文件夹按钮（`_pickDirForThisTask` 调跨平台 picker），仅当前任务生效。
+  - 4 个提交入口（URL submit / paste-and-add / .torrent / .metalink / 外部 intent drain pending）统一在 `_buildRpcOptions` 前先 `await _maybeAskDownloadDir()`：用户已经在「本次下载目录」或「全局默认」里给了路径就 skip，否则在 `askDownloadDirEachTime == true` 时弹 picker；picker 取消 → 整次添加中止（而不是 silently 用默认目录）。
+  - 三态 sentinel `_AskDirResult.{skip,cancel,pick(path)}` 把"无需询问 / 用户中止 / 用户选了"区分开，避免误用 null 当成"取消"。
+- **SettingsPage 改造**：「下载目录」区下方新增 SwitchListTile「每次询问下载目录」，绑定 `_askDownloadDirEachTime` 并参与 `_buildSettings` / 设置导入回写。
+- **l10n**：新增 18 个 key（中英）覆盖 AddTask 字段 / 设置 switch / 移动端 BottomSheet 标题 / 候选目录标签 / 子目录提示 / 沙箱卸载警告等。
+- **测试**：
+  - [`test/core/download_dir_picker_test.dart`](test/core/download_dir_picker_test.dart) 新增 6 个用例覆盖 `resolveDownloadDirForTask` 优先级（overrideDir > manualField > globalDefault）+ trim 空串跳过 + 全 null 返回 null + 返回值保持 trim。
+  - [`test/data/settings_export_test.dart`](test/data/settings_export_test.dart) 新增 1 个用例 round-trip `askDownloadDirEachTime` + `downloadDirectoryOverride`；defaults 测试同步断言新字段默认 false。
+  - `flutter analyze` 无 issue；`flutter test` 全部 138 通过、1 个无关 skip；`dart format` 通过。
+
+### 新增（下载列表 / 历史 Tab / 任务详情页统一"打开下载位置"入口）
+
+用户反馈："从下载列表能不能直接打开文件位置？长按菜单要找半天，历史 Tab 完全没有这个按钮，详情页也找不到。"
+
+- **现状**：任务列表卡片本来有长按上下文菜单 + 右侧 `Icons.folder_open_outlined`，但历史 Tab 列表项 / 任务详情页 AppBar 都缺。最容易碰到的场景是：从「历史」Tab 看到一条已完成下载，想就近打开下载目录——只能先点开详情页（还得是历史快照模式因为 aria2 早就 purge 了），再返回任务列表才能找到打开位置入口。
+- **抽出共享 UI 反馈函数**：[`lib/core/reveal_path.dart`](lib/core/reveal_path.dart) 新增顶级 `revealPathInUiWithFeedback(BuildContext, AppLocalizations, String?)`，把 `_TaskListPageState._openFolder` 里原本耦合的 snackbar 派发 + Web 复制路径 + 移动端 `_showMobilePathSheet` 全部抽出共享。任务列表 / 历史 Tab / 详情页三处调用点共用，行为完全一致：null 路径 → `openFolderFailed` toast；Web → 复制路径 + `openFolderWebCopied` toast；桌面 → 调 `revealPathInFileManager` 失败时 toast；移动端目录场景 → 弹复制路径 BottomSheet（系统文件管理器无 intent 打开本地目录）。
+- **历史 Tab 加按钮**：[`task_history_tab.dart`](lib/features/tasks/task_history_tab.dart) 在「重试」按钮左侧插入 `Icons.folder_open_outlined`，条件 `entry.dir != null`（complete / error / removed 三种历史状态都可能保留 dir）。点击时拼 `p.join(entry.dir!, entry.name)` 让文件管理器精确选中文件，文件被移走时 `revealPathInFileManager` 自动回退到 `dirname` 打开目录。
+- **任务详情页 AppBar 加按钮**：[`task_detail_page.dart`](lib/features/tasks/task_detail_page.dart) 在 `taskShare` 左侧插入「打开下载位置」IconButton，条件 `resolveRevealPath(_status) != null`。**历史快照模式下同样可用**——`TaskHistoryEntry.toDetailShape` 已经把 `files[0].path` 改成完整路径（见下条），所以 `firstDownloadedPath` 走的是真实文件路径而不是 basename。
+- **修复 `toDetailShape` 伪相对路径**：[`task_history_entry.dart`](lib/data/models/task_history_entry.dart) 之前把 `files[0].path = name`（basename），导致历史快照详情页的「打开下载位置」让 macOS 的 `open -R` 拿不到正确路径。现在 `files[0].path = p.join(dir, name)`：dir + name 齐全时拼完整路径；缺 dir 时退回 name（保留向后兼容老历史记录）；缺 name 时退回空串（顶层 `dir` 仍保留，detail page 的 `resolveRevealPath` 会优先文件路径但因为空所以走 dir）。AppBar 标题继续走 `pickTaskName(path)` 的 basename 提取，显示效果不受影响。
+- **测试**：[`task_history_entry_test.dart`](test/data/task_history_entry_test.dart) 更新原 `toDetailShape` 用例的 path 断言（`movie.mkv` → `/Downloads/movie.mkv`），并新增 2 个用例覆盖「缺 dir 退回 name」「缺 name 只暴露 dir」两种边界。`flutter analyze` 仅有 2 个上轮残留 info 级 transitive 依赖提示（与本次无关）；`flutter test` 全部 131 通过；`dart format` 通过。
+- **体验**：历史 Tab 每条任务现在都有「打开下载位置」按钮，无需再走详情页；任务详情页 AppBar 也支持，包括 aria2 已 purge 走历史快照的场景；任务列表卡片的现有入口不变。
+
 ### 修复（macOS prebuilt libaria2 重编：从「功能受限模式」恢复到全能力）
 
 用户反馈："设置页常驻一条『库引擎运行在功能受限模式』红条，缺四项能力（删除已完成任务 / 枚举等待中任务 / 枚举已停止任务 / 任务级扩展字段）。"
