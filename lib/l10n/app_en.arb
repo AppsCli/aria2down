@@ -36,6 +36,11 @@
   "historyClearTitle": "Clear history",
   "historyClearMessage": "Removes saved finished tasks on this device. Does not affect the current aria2 queue.",
   "historyClearConfirm": "Clear",
+  "historyDeleteTooltip": "Remove from history",
+  "historyDeleteTitle": "Remove from history?",
+  "historyDeleteMessage": "Removes this entry from the local history. Does not affect the aria2 queue. Files on disk are kept.",
+  "historyDeleteConfirm": "Remove",
+  "historyDeleteSnack": "Removed from history",
   "mobilePathSheetTitle": "Save path",
   "mobilePathCopied": "Path copied to clipboard",
   "copyPath": "Copy path",
@@ -73,6 +78,36 @@
   "emptyActive": "No active downloads",
   "emptyWaiting": "No waiting tasks",
   "emptyStopped": "No stopped tasks",
+  "statusPaused": "Paused",
+  "statusComplete": "Complete",
+  "statusError": "Error",
+  "statusRemoved": "Removed",
+  "taskDetailHistorySnapshotBanner": "Task is no longer in aria2; showing local history snapshot. Live fields (speed, peers, etc.) are unavailable.",
+  "taskDetailBackToList": "Back to task list",
+  "libraryCapabilitiesDegradedTitle": "Library engine running with limited capabilities",
+  "libraryCapabilitiesDegradedBody": "This libaria2 build is missing some patches: {missing}. Stopped-task removal may silently no-op and waiting/stopped lists fall back to the Dart-side simulator. Rerun ./scripts/build_libaria2_<platform>.sh to refresh the prebuilt artifacts.",
+  "@libraryCapabilitiesDegradedBody": {
+    "placeholders": {
+      "missing": {"type": "String"}
+    }
+  },
+  "libraryCapabilityRemoveDownloadResult": "delete completed tasks",
+  "libraryCapabilityListReserved": "enumerate waiting tasks",
+  "libraryCapabilityListDownloadResults": "enumerate stopped tasks",
+  "libraryCapabilityDownloadHandleExt": "BitTorrent top-level fields (numSeeders, etc.)",
+  "loadMoreStopped": "Load more",
+  "loadMoreStoppedWithCount": "Load more ({loaded} loaded)",
+  "@loadMoreStoppedWithCount": {
+    "placeholders": {
+      "loaded": {"type": "int"}
+    }
+  },
+  "loadedAllStopped": "All stopped tasks loaded ({total})",
+  "@loadedAllStopped": {
+    "placeholders": {
+      "total": {"type": "int"}
+    }
+  },
   "hintUrls": "HTTP(S) / FTP / magnet links; separate with space or newline",
   "addButton": "Add",
   "snackAdded": "Download added",
@@ -277,6 +312,7 @@
       "waiting": {"type": "int"}
     }
   },
+  "trayToolTipOffline": "aria2down\nDisconnected — click to retry",
   "startMinimized": "Start hidden in tray",
   "startMinimizedDesc": "Launch directly into the system tray instead of showing the main window. Pairs well with “Launch at login”.",
   "keepAliveInBackground": "Keep downloads alive in background",

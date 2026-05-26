@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart' show debugPrint;
+
+import 'aria2_exceptions.dart';
 import 'rpc_methods.dart';
 import 'rpc_transport.dart';
 
@@ -12,6 +15,18 @@ final class Aria2Client {
     return Map<String, dynamic>.from(r);
   }
 
+  /// 把 transport 返回的 `result` 期望为非空 String：transport 实现异常或被
+  /// 中间人篡改时可能返回 null/非 String；此前用 `r! as String` 会抛
+  /// `Null check operator used on a null value`/`TypeError`，文案对终端
+  /// 用户不友好。统一改抛 [Aria2TransportException]，让 `formatRpcError`
+  /// 能给出可读提示。
+  String _expectGid(Object? r, String method) {
+    if (r is String) return r;
+    throw Aria2TransportException(
+      '$method 返回意外结果：${r == null ? 'null' : r.runtimeType}',
+    );
+  }
+
   Future<String> addUri(
     List<String> uris, {
     Map<String, dynamic>? options,
@@ -20,7 +35,7 @@ final class Aria2Client {
       uris,
       options ?? <String, dynamic>{},
     ]);
-    return r! as String;
+    return _expectGid(r, RpcMethods.addUri);
   }
 
   Future<String> addTorrent(
@@ -33,7 +48,7 @@ final class Aria2Client {
       uris ?? <String>[],
       options ?? <String, dynamic>{},
     ]);
-    return r! as String;
+    return _expectGid(r, RpcMethods.addTorrent);
   }
 
   Future<String> addMetalink(
@@ -44,7 +59,7 @@ final class Aria2Client {
       base64Metalink,
       options ?? <String, dynamic>{},
     ]);
-    return r! as String;
+    return _expectGid(r, RpcMethods.addMetalink);
   }
 
   Future<void> pause(String gid) async {
@@ -83,6 +98,47 @@ final class Aria2Client {
     await _t.call(force ? RpcMethods.forceRemove : RpcMethods.remove, <dynamic>[
       gid,
     ]);
+  }
+
+  /// 删除任务：进行中走 [remove]（force），已结束走 [removeDownloadResult]。
+  ///
+  /// [status] 来自 `tellStatus` / 列表项的 `status` 字段；未知时先 forceRemove，
+  /// 失败再尝试 removeDownloadResult（兼容远程 RPC 与库引擎）。
+  ///
+  /// 两次尝试都失败时抛**第二次**的异常，但**第一次**的异常会用 `debugPrint`
+  /// 留痕——之前实现里第一次失败的错误（可能是网络/鉴权）被静默吃掉，使得
+  /// 上层看到的报错与真正根因脱节。
+  Future<void> removeTask(String gid, {String? status}) async {
+    if (_isStoppedTaskStatus(status)) {
+      await removeDownloadResult(gid);
+      return;
+    }
+    try {
+      await remove(gid, force: true);
+    } catch (firstError) {
+      // 关键：第一次错误必须留痕。之前实现 catch(_) 直接吞，下游只能拿到
+      // 第二次（removeDownloadResult）的失败信息，看不到真正的原始原因
+      // （网络/鉴权/超时等）。这里走 debugPrint 而不是 logging transport，
+      // 因为 forceRemove 走的就是 transport，单纯 RPC 异常已经被 logging
+      // transport 打印过一遍；这里再补一条「将回退到 removeDownloadResult」
+      // 的上下文行，让两条日志可关联。
+      debugPrint(
+        '[aria2] removeTask($gid) forceRemove failed, falling back to '
+        'removeDownloadResult: $firstError',
+      );
+      await removeDownloadResult(gid);
+    }
+  }
+
+  static bool _isStoppedTaskStatus(String? status) {
+    switch (status) {
+      case 'complete':
+      case 'error':
+      case 'removed':
+        return true;
+      default:
+        return false;
+    }
   }
 
   Future<Map<String, dynamic>> tellStatus(

@@ -1,5 +1,6 @@
 import '../aria2/client/aria2_client.dart';
 import '../aria2/client/http_transport.dart';
+import '../aria2/client/logging_transport.dart';
 import '../aria2/client/ws_listener.dart';
 import 'remote_endpoint.dart';
 
@@ -29,7 +30,9 @@ Future<RemoteRpcProbeResult> probeRemoteRpc({
       endpoint: httpUri,
       secret: secret.trim(),
     );
-    final client = Aria2Client(transport: transport);
+    final client = Aria2Client(
+      transport: Aria2LoggingTransport(transport, label: 'probe'),
+    );
     final ver = await client.getVersion();
     final version = '${ver['version'] ?? ver}';
 

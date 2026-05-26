@@ -118,6 +118,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get historyClearConfirm => 'Clear';
 
   @override
+  String get historyDeleteTooltip => 'Remove from history';
+
+  @override
+  String get historyDeleteTitle => 'Remove from history?';
+
+  @override
+  String get historyDeleteMessage =>
+      'Removes this entry from the local history. Does not affect the aria2 queue. Files on disk are kept.';
+
+  @override
+  String get historyDeleteConfirm => 'Remove';
+
+  @override
+  String get historyDeleteSnack => 'Removed from history';
+
+  @override
   String get mobilePathSheetTitle => 'Save path';
 
   @override
@@ -173,6 +189,60 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get emptyStopped => 'No stopped tasks';
+
+  @override
+  String get statusPaused => 'Paused';
+
+  @override
+  String get statusComplete => 'Complete';
+
+  @override
+  String get statusError => 'Error';
+
+  @override
+  String get statusRemoved => 'Removed';
+
+  @override
+  String get taskDetailHistorySnapshotBanner =>
+      'Task is no longer in aria2; showing local history snapshot. Live fields (speed, peers, etc.) are unavailable.';
+
+  @override
+  String get taskDetailBackToList => 'Back to task list';
+
+  @override
+  String get libraryCapabilitiesDegradedTitle =>
+      'Library engine running with limited capabilities';
+
+  @override
+  String libraryCapabilitiesDegradedBody(String missing) {
+    return 'This libaria2 build is missing some patches: $missing. Stopped-task removal may silently no-op and waiting/stopped lists fall back to the Dart-side simulator. Rerun ./scripts/build_libaria2_<platform>.sh to refresh the prebuilt artifacts.';
+  }
+
+  @override
+  String get libraryCapabilityRemoveDownloadResult => 'delete completed tasks';
+
+  @override
+  String get libraryCapabilityListReserved => 'enumerate waiting tasks';
+
+  @override
+  String get libraryCapabilityListDownloadResults => 'enumerate stopped tasks';
+
+  @override
+  String get libraryCapabilityDownloadHandleExt =>
+      'BitTorrent top-level fields (numSeeders, etc.)';
+
+  @override
+  String get loadMoreStopped => 'Load more';
+
+  @override
+  String loadMoreStoppedWithCount(int loaded) {
+    return 'Load more ($loaded loaded)';
+  }
+
+  @override
+  String loadedAllStopped(int total) {
+    return 'All stopped tasks loaded ($total)';
+  }
 
   @override
   String get hintUrls =>
@@ -609,6 +679,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String trayToolTipStats(String down, String up, int active, int waiting) {
     return 'aria2down\n↓ $down  ↑ $up\nactive $active · waiting $waiting';
   }
+
+  @override
+  String get trayToolTipOffline => 'aria2down\nDisconnected — click to retry';
 
   @override
   String get startMinimized => 'Start hidden in tray';

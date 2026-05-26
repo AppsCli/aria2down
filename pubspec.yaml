@@ -37,7 +37,24 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.3
   msix: ^3.16.8
+
+# 从 assets/icon/app_icon.png（1024×1024）生成各平台启动图标，避免手工拉伸。
+# 更新主图后执行: dart run flutter_launcher_icons
+flutter_launcher_icons:
+  image_path: assets/icon/app_icon.png
+  android: true
+  ios: true
+  macos:
+    generate: true
+  windows:
+    generate: true
+    icon_size: 256
+  min_sdk_android: 21
+  remove_alpha_ios: true
+  adaptive_icon_background: "#1565C0"
+  adaptive_icon_foreground: assets/icon/app_icon.png
 
 # Windows MSIX（P3-05）：在 flutter build windows 后执行 dart run msix:create
 msix_config:
@@ -45,7 +62,7 @@ msix_config:
   publisher_display_name: aria2down
   identity_name: cloud.iothub.aria2down
   msix_version: 0.1.0.0
-  logo_path: assets/tray/tray.png
+  logo_path: assets/icon/app_icon.png
   capabilities: internetClient
   # 注册外部唤起协议：自定义 scheme + magnet。Windows 在打包(MSIX)模式下生效。
   protocol_activation: aria2down, magnet
@@ -56,5 +73,6 @@ flutter:
   generate: true
   uses-material-design: true
   assets:
+    - assets/icon/app_icon.png
     - assets/tray/tray.png
     - assets/android/README.md

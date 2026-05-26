@@ -59,7 +59,10 @@ final class Aria2HttpTransport implements Aria2RpcTransport {
         int? code;
         String msg = 'RPC error';
         if (err is Map<String, dynamic>) {
-          code = err['code'] as int?;
+          // 非标准 RPC 代理偶尔会把 code 编为 num（含 `1.0` 这种浮点表达），
+          // `as int?` 会失败抛 TypeError，丢掉真实错误码；用 `num?.toInt()`
+          // 容错。
+          code = (err['code'] as num?)?.toInt();
           final m = err['message'];
           if (m is String) msg = m;
         }

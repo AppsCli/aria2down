@@ -45,6 +45,26 @@ ARIA2_FFI_EXPORT int aria2_ffi_is_available(void);
  * Returns an owning pointer; release with aria2_ffi_free_string. */
 ARIA2_FFI_EXPORT const char *aria2_ffi_library_version(void);
 
+/* Returns a JSON array of strings listing optional capabilities compiled into
+ * this build. Each element corresponds to one ARIA2DOWN_HAS_* macro in the
+ * patched <aria2/aria2.h>. Possible values include:
+ *
+ *   - "removeDownloadResult" — public aria2::{removeDownloadResult,
+ *     purgeDownloadResult} available; stopped-task removal works hard.
+ *   - "listReserved"         — public aria2::getReservedDownload available;
+ *     real waiting/paused enumeration (no Dart-side fallback needed).
+ *   - "listDownloadResults"  — public aria2::getDownloadResults available;
+ *     real stopped enumeration.
+ *   - "downloadHandleExt"    — DownloadHandle exposes errorMessage,
+ *     numSeeders, seeder, verifiedLength, verifyIntegrityPending.
+ *
+ * Older prebuilt libaria2.a binaries predate every patch — in that case the
+ * array is empty AND the symbol may be missing entirely (Dart side must
+ * provide a soft fallback when `lookupSymbol` fails).
+ *
+ * The returned pointer is owning; release with aria2_ffi_free_string. */
+ARIA2_FFI_EXPORT const char *aria2_ffi_get_capabilities(void);
+
 /* Releases a string returned by any aria2_ffi_* function. NULL-safe. */
 ARIA2_FFI_EXPORT void aria2_ffi_free_string(const char *s);
 

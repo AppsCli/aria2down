@@ -19,7 +19,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DESKTOP_SRC="$ROOT/linux/aria2down.desktop"
 MIME_SRC="$ROOT/linux/aria2down-mime.xml"
-ICON_SRC=""
+ICON_SRC="$ROOT/linux/icons/256x256/apps/aria2down.png"
 
 if [[ ! -f "$DESKTOP_SRC" ]]; then
   echo "未找到 $DESKTOP_SRC" >&2
@@ -61,7 +61,21 @@ else
   ICON_DIR="$PREFIX/share/icons/hicolor/scalable/apps"
 fi
 
-mkdir -p "$APP_DIR" "$MIME_DIR"
+mkdir -p "$APP_DIR" "$MIME_DIR" "$ICON_DIR"
+
+if [[ -f "$ICON_SRC" ]]; then
+  hicolor_root="$(dirname "$(dirname "$ICON_DIR")")"
+  for size_dir in "$ROOT/linux/icons/"*x*/apps; do
+    [[ -d "$size_dir" ]] || continue
+    size_name=$(basename "$(dirname "$size_dir")")
+    dest_dir="$hicolor_root/$size_name/apps"
+    mkdir -p "$dest_dir"
+    install -m 0644 "$size_dir/aria2down.png" "$dest_dir/aria2down.png"
+  done
+  if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t "$hicolor_root" 2>/dev/null || true
+  fi
+fi
 
 DEST_DESKTOP="$APP_DIR/aria2down.desktop"
 DEST_MIME="$MIME_DIR/aria2down.xml"

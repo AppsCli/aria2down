@@ -53,6 +53,17 @@ final class Aria2NativeBindings {
         'aria2_ffi_library_version',
       );
 
+  /// 可选符号：`aria2_ffi_get_capabilities` 是较新版 aria2_ffi 引入的查询接口
+  /// （返回 JSON 数组字符串列出已编译的 ARIA2DOWN_HAS_* 能力）。旧编译产物
+  /// 的 dylib/dll 里不存在此符号——这里用 `providesSymbol` 探测，缺失时返回
+  /// null，调用方按"零能力"处理。
+  late final Pointer<Utf8> Function()? aria2_ffi_get_capabilities =
+      _dl.providesSymbol('aria2_ffi_get_capabilities')
+      ? _dl.lookupFunction<Pointer<Utf8> Function(), Pointer<Utf8> Function()>(
+          'aria2_ffi_get_capabilities',
+        )
+      : null;
+
   late final aria2_ffi_free_string = _dl
       .lookupFunction<
         Void Function(Pointer<Utf8>),

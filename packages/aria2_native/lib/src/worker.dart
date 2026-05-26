@@ -49,6 +49,8 @@ abstract final class WorkerOp {
   static const changeOption = 20;
   static const changeGlobalOption = 21;
 
+  static const getCapabilities = 4;
+
   static const tellStatus = 30;
   static const tellActive = 31;
   static const tellWaiting = 32;
@@ -85,6 +87,8 @@ class Aria2NativeWorker {
     this._replyReceive,
     this._eventReceive,
     this._eventController,
+    this._replyPortSub,
+    this._eventPortSub,
   );
 
   final Isolate _isolate;
@@ -94,6 +98,11 @@ class Aria2NativeWorker {
   final ReceivePort _replyReceive;
   final ReceivePort _eventReceive;
   final StreamController<List<int>> _eventController;
+  // 显式持有 listen() 返回的 subscription，关闭时按顺序 cancel，避免
+  // events 的 ReceivePort 已 close 但 listener 仍在向已关闭的 controller
+  // 推数据的窗口。
+  final StreamSubscription<dynamic> _replyPortSub;
+  final StreamSubscription<dynamic> _eventPortSub;
   var _closed = false;
 
   Stream<List<int>> get events => _eventStream;
@@ -150,7 +159,7 @@ class Aria2NativeWorker {
     // Replies arrive on a separate port so that the bootstrap port can be
     // closed once handshake completes.
     final replyReceive = ReceivePort();
-    replyReceive.listen((msg) => replies.dispatch(msg));
+    final replyPortSub = replyReceive.listen((msg) => replies.dispatch(msg));
     // Tell the worker which port to send replies on. The worker has already
     // queued user messages behind this one because Dart preserves send order.
     requestPort.send(['_setReplyPort', replyReceive.sendPort]);
@@ -158,8 +167,8 @@ class Aria2NativeWorker {
     // Convert the raw event ReceivePort into a broadcast Stream<List<int>>
     // so multiple listeners can attach (e.g. event bridge + diagnostics).
     final eventController = StreamController<List<int>>.broadcast();
-    events.listen((msg) {
-      if (msg is List) {
+    final eventPortSub = events.listen((msg) {
+      if (msg is List && !eventController.isClosed) {
         eventController.add(msg.cast<int>());
       }
     });
@@ -172,37 +181,81 @@ class Aria2NativeWorker {
       replyReceive,
       events,
       eventController,
+      replyPortSub,
+      eventPortSub,
     );
   }
 
+  /// 默认的 worker RPC 超时。`aria2_ffi_*` 大多是毫秒级 FFI 调用；只有
+  /// `tellStopped` 在数千条 stopped 任务时可能慢一些。60s 是一个保守上限，
+  /// 既不会误伤合法慢调用，又能避免 worker 因 native 层异常未 reply 时把
+  /// UI 永远卡死（库引擎下 worker 是所有 RPC 的串行点，一条挂起 = 全局
+  /// 死锁）。
+  static const Duration defaultSendTimeout = Duration(seconds: 60);
+
   /// Send an opcode + JSON args, get back the JSON payload (already decoded).
-  Future<Object?> send(int op, [List<Object?> args = const []]) {
+  ///
+  /// 失败语义：
+  /// - worker 已关闭 → 立即抛 `Aria2NativeCallException(code=-1006)`。
+  /// - 超过 [timeout]（默认 [defaultSendTimeout]）仍未收到 reply → 抛
+  ///   `Aria2NativeCallException(code=-1007, "aria2 worker 调用超时")`，
+  ///   并把对应 id 从 demuxer 中移除，使迟到的 reply 被静默丢弃。
+  Future<Object?> send(
+    int op, [
+    List<Object?> args = const [],
+    Duration? timeout,
+  ]) {
     if (_closed) {
       throw const Aria2NativeCallException('aria2 worker 已关闭', code: -1006);
     }
-    return _sendUnchecked(op, args);
+    return _sendUnchecked(op, args, timeout ?? defaultSendTimeout);
   }
 
-  Future<Object?> _sendUnchecked(int op, List<Object?> args) {
+  Future<Object?> _sendUnchecked(
+    int op,
+    List<Object?> args,
+    Duration? timeout,
+  ) {
     final id = _replies.next();
     final completer = _replies.expect(id);
     _requestPort.send([id, op, ...args]);
-    return completer.future;
+    if (timeout == null) {
+      return completer.future;
+    }
+    return completer.future.timeout(
+      timeout,
+      onTimeout: () {
+        // 关键：把 completer 从 demuxer 移除，否则迟到的 reply 会触发 "complete
+        // already completed" 异常（Completer 已被 timeout completeError 完成）。
+        _replies.discard(id);
+        throw Aria2NativeCallException(
+          'aria2 worker 调用超时 (op=$op, ${timeout.inSeconds}s)',
+          code: -1007,
+        );
+      },
+    );
   }
 
   /// Stop the worker. Should always be awaited so libaria2 cleans up.
   Future<void> close({bool force = false}) async {
     if (_closed) return;
+    _closed = true;
     try {
+      // close 路径用一个独立的较短 timeout：worker 内部会做 shutdown +
+      // run_once drain + session_final + library_deinit，正常 1~2s；超过
+      // 30s 视为 native 层卡死，进入强杀路径。
       await _sendUnchecked(WorkerOp.close, [
         force ? 1 : 0,
-      ]).timeout(const Duration(seconds: 30), onTimeout: () => null);
+      ], const Duration(seconds: 30));
     } catch (_) {
       // Ignore — we are tearing down.
     }
-    _closed = true;
     _isolate.kill(priority: Isolate.beforeNextEvent);
     _replies.dispose();
+    // 关闭顺序：先 cancel listener，再 close ReceivePort（防止 listener 在
+    // close() 与 cancel() 之间还触发一次回调），最后 close StreamController。
+    await _replyPortSub.cancel();
+    await _eventPortSub.cancel();
     _replyReceive.close();
     _eventReceive.close();
     if (!_eventController.isClosed) {
@@ -222,6 +275,15 @@ class _ReplyDemuxer {
     final c = Completer<Object?>();
     _completers[id] = c;
     return c;
+  }
+
+  /// 移除等待中的 id，让对应 reply 到达时被静默忽略。
+  ///
+  /// 调用方（超时或主动取消）应当**自行**用别的方式 completeError，本方法
+  /// 只负责从映射中摘除，避免迟到的 worker reply 触发 "Bad state: Future
+  /// already completed"。
+  void discard(int id) {
+    _completers.remove(id);
   }
 
   void dispatch(Object? msg) {
@@ -402,6 +464,19 @@ void _entry(_SpawnPayload payload) {
             reply(id, false, 'aria2_ffi_shutdown', rv);
           } else {
             reply(id, true, null);
+          }
+          return;
+
+        case WorkerOp.getCapabilities:
+          // 旧 prebuilt 编译产物没有 aria2_ffi_get_capabilities 符号——
+          // bindings 探测到符号缺失会让 getter 返回 null，worker 这里直接
+          // 上报"零能力"，调用方按需展示降级提示。
+          final fn = binding.aria2_ffi_get_capabilities;
+          if (fn == null) {
+            reply(id, true, '[]');
+          } else {
+            final p = fn();
+            reply(id, true, _takeStringPtr(binding, p));
           }
           return;
 
@@ -813,7 +888,20 @@ void _withUtf8Strings(
 String _takeStringPtr(Aria2NativeBindings binding, Pointer<Utf8> p) {
   if (p == nullptr) return '';
   try {
-    return p.toDartString();
+    // libaria2 occasionally emits non UTF-8 bytes (e.g. legacy torrents with
+    // a GBK/Big5 `info.name`). `Pointer<Utf8>.toDartString()` would throw
+    // `FormatException: Unexpected extension byte`, which the worker turns
+    // into an opaque -1005 RPC error. Decode leniently so the affected
+    // field degrades to U+FFFD instead of crashing the entire response.
+    final raw = p.cast<Uint8>();
+    var len = 0;
+    while (raw[len] != 0) {
+      len++;
+    }
+    if (len == 0) return '';
+    return const Utf8Decoder(
+      allowMalformed: true,
+    ).convert(raw.asTypedList(len));
   } finally {
     binding.aria2_ffi_free_string(p);
   }

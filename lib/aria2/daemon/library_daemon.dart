@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:aria2_native/aria2_native.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -9,6 +10,7 @@ import '../../data/app_settings.dart';
 import '../client/aria2_client.dart';
 import '../client/aria2_exceptions.dart';
 import '../client/in_process_transport.dart';
+import '../client/logging_transport.dart';
 import '../client/ws_listener.dart';
 import 'aria2_daemon.dart';
 import 'daemon_state.dart';
@@ -20,7 +22,11 @@ import 'daemon_state.dart';
 /// - libaria2 的事件循环 (`aria2_ffi_run_once`) 同步阻塞调用方至多 ~1s，
 ///   因此 [Aria2NativeSession] 内部把所有 FFI 调用搬到独立 worker isolate，
 ///   主 isolate（UI 线程）不再被任何 libaria2 调用阻塞。
-final class LibraryDaemon implements Aria2Daemon {
+///
+/// 标注为 `base class` 而非 `final`：禁止外部 implements（避免 misuse 错过
+/// 内部状态字段），但允许测试中 extends 写一个轻量 fake（仅覆盖 capabilities
+/// 等用于 provider 路径的 getter）。
+base class LibraryDaemon implements Aria2Daemon {
   LibraryDaemon({
     required Directory stateRoot,
     Directory? downloadDirectory,
@@ -43,6 +49,18 @@ final class LibraryDaemon implements Aria2Daemon {
   _LibraryEventBridge? _bridge;
   DaemonState _state = DaemonState.stopped;
   String? _logFilePath;
+  // 库引擎一次启动后不会内部重建 client/WS，所以这个 ValueNotifier 永远停在
+  // 0；保留对外接口对齐 Aria2Daemon 即可（UI 不会因此重绑订阅）。
+  final ValueNotifier<int> _connectionGeneration = ValueNotifier<int>(0);
+  // 启动时一次性查询：旧 prebuilt 缺哪些能力。UI 据此向用户提示「请重编
+  // libaria2」。
+  Set<String> _capabilities = const <String>{};
+
+  /// 本构建实际启用的可选 capability 列表（参见 [Aria2NativeSession.getCapabilities]）。
+  ///
+  /// 空集合 = 用的是未打补丁的旧 prebuilt，「删除已完成 / 列等待任务 / BT 顶层
+  /// 字段」会走 Dart 侧软兜底而非真实 native 路径。
+  Set<String> get capabilities => _capabilities;
 
   static Future<LibraryDaemon> create({required AppSettings settings}) async {
     final base = await getApplicationSupportDirectory();
@@ -53,6 +71,14 @@ final class LibraryDaemon implements Aria2Daemon {
     final rawDir = settings.downloadDirectoryOverride?.trim();
     if (rawDir != null && rawDir.isNotEmpty) {
       final d = Directory(rawDir);
+      // 库引擎也尊重用户配置：目录不存在时尝试创建，避免静默回退到默认 Downloads。
+      if (!await d.exists()) {
+        try {
+          await d.create(recursive: true);
+        } catch (_) {
+          /* 创建失败时回退到默认 */
+        }
+      }
       if (await d.exists()) downloadOverride = d;
     }
 
@@ -64,6 +90,19 @@ final class LibraryDaemon implements Aria2Daemon {
       globalDownloadLimit: settings.globalDownloadLimit,
       globalUploadLimit: settings.globalUploadLimit,
     );
+  }
+
+  /// 删除可能由上一次子进程模式残留的 `rpc.secret`：库引擎无监听 RPC 端口，
+  /// 留着旧文件会让扩展/CLI 连一个早就下线的端口，且鉴权失败。
+  Future<void> _purgeStaleSecretFile() async {
+    try {
+      final f = File(p.join(_stateRoot.path, 'rpc.secret'));
+      if (await f.exists()) {
+        await f.delete();
+      }
+    } catch (_) {
+      /* ignore */
+    }
   }
 
   DaemonState get state => _state;
@@ -97,9 +136,17 @@ final class LibraryDaemon implements Aria2Daemon {
   Aria2NotificationSource? get wsNotifier => _bridge;
 
   @override
+  ValueListenable<int> get connectionGeneration => _connectionGeneration;
+
+  @override
   Future<void> start() async {
     if (_state == DaemonState.ready) return;
     _state = DaemonState.starting;
+
+    // 立刻清掉陈旧 `rpc.secret`（若曾用子进程模式留下）。这样扩展/Native
+    // Messaging 调 `readLocalRpcCredentials()` 会得到 null 而不是误连一个
+    // 早已下线的回环端口。
+    await _purgeStaleSecretFile();
 
     final stateDir = Directory(p.join(_stateRoot.path, 'state'));
     await stateDir.create(recursive: true);
@@ -164,9 +211,38 @@ final class LibraryDaemon implements Aria2Daemon {
     }
 
     _bridge = _LibraryEventBridge(_session!.events);
-    _client = Aria2Client(transport: Aria2InProcessTransport(_session!));
+    _client = Aria2Client(
+      transport: Aria2LoggingTransport(
+        Aria2InProcessTransport(_session!),
+        label: 'library',
+      ),
+    );
 
     _state = DaemonState.ready;
+
+    // 能力集查询走异步路径，**不阻塞** daemon ready：之前实现把
+    // `await getCapabilities()` 放在 _client 创建之前，一旦 worker 因任
+    // 何原因（例如 native 初始化慢）多花几秒，UI 就会感知到 daemon 启动
+    // 拖延、任务详情页 tellStatus 排在队列后面看似"加载失败"。capability
+    // 仅影响 UI 提示（降级 banner），不影响任何 RPC 路径正确性——丢失或
+    // 延迟拉到都是软降级，所以可以 fire-and-forget。
+    unawaited(_loadCapabilitiesAsync());
+  }
+
+  Future<void> _loadCapabilitiesAsync() async {
+    // 5s 超时双保险：默认 worker.send 已有 60s timeout，但 capabilities 是
+    // 启动期诊断信息，多等几十秒毫无价值；超时就当零能力。
+    try {
+      _capabilities = await _session!.getCapabilities().timeout(
+        const Duration(seconds: 5),
+      );
+    } catch (e, st) {
+      // ignore: avoid_print
+      print('[library_daemon] getCapabilities failed (soft-degraded): $e');
+      // ignore: avoid_print
+      print('$st');
+      _capabilities = const <String>{};
+    }
   }
 
   @override

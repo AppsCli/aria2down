@@ -36,6 +36,11 @@
   "historyClearTitle": "清空历史",
   "historyClearMessage": "将删除本机保存的已结束任务记录，不影响 aria2 当前队列。",
   "historyClearConfirm": "清空",
+  "historyDeleteTooltip": "从历史中删除",
+  "historyDeleteTitle": "从历史中删除？",
+  "historyDeleteMessage": "仅从本机保存的历史记录中移除该条目，不影响 aria2 当前队列，也不会删除磁盘上的文件。",
+  "historyDeleteConfirm": "删除",
+  "historyDeleteSnack": "已从历史中删除",
   "mobilePathSheetTitle": "保存路径",
   "mobilePathCopied": "路径已复制到剪贴板",
   "copyPath": "复制路径",
@@ -73,6 +78,36 @@
   "emptyActive": "暂无进行中的任务",
   "emptyWaiting": "暂无等待中的任务",
   "emptyStopped": "暂无已停止任务",
+  "statusPaused": "已暂停",
+  "statusComplete": "已完成",
+  "statusError": "出错",
+  "statusRemoved": "已删除",
+  "taskDetailHistorySnapshotBanner": "aria2 已不再持有此任务，正在显示本地历史快照。实时字段（速度、Peers 等）不可用。",
+  "taskDetailBackToList": "返回任务列表",
+  "libraryCapabilitiesDegradedTitle": "库引擎运行在功能受限模式",
+  "libraryCapabilitiesDegradedBody": "当前 libaria2 构建缺失补丁：{missing}。删除已完成任务可能软成功无效，等待/已停止列表会回退到 Dart 模拟逻辑。请重新跑 ./scripts/build_libaria2_<platform>.sh 刷新 prebuilt。",
+  "@libraryCapabilitiesDegradedBody": {
+    "placeholders": {
+      "missing": {"type": "String"}
+    }
+  },
+  "libraryCapabilityRemoveDownloadResult": "删除已完成任务",
+  "libraryCapabilityListReserved": "枚举等待中任务",
+  "libraryCapabilityListDownloadResults": "枚举已停止任务",
+  "libraryCapabilityDownloadHandleExt": "BT 顶层字段（numSeeders 等）",
+  "loadMoreStopped": "加载更多",
+  "loadMoreStoppedWithCount": "加载更多（已加载 {loaded} 条）",
+  "@loadMoreStoppedWithCount": {
+    "placeholders": {
+      "loaded": {"type": "int"}
+    }
+  },
+  "loadedAllStopped": "已加载全部已停止任务（共 {total} 条）",
+  "@loadedAllStopped": {
+    "placeholders": {
+      "total": {"type": "int"}
+    }
+  },
   "hintUrls": "输入 HTTP(S) / FTP / 磁力 链接，多个可用空格或换行分隔",
   "addButton": "添加",
   "snackAdded": "已添加下载任务",
@@ -277,6 +312,7 @@
       "waiting": {"type": "int"}
     }
   },
+  "trayToolTipOffline": "aria2down\n已断开 — 点击图标重试",
   "startMinimized": "启动时隐藏到托盘",
   "startMinimizedDesc": "应用启动后直接最小化到系统托盘，适合配合「开机自启」使用。",
   "keepAliveInBackground": "后台保持下载",

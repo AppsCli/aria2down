@@ -14,7 +14,11 @@ import 'rpc_transport.dart';
 /// 这里只负责参数翻译与 await 结果。`onMutate` 钩子仍保留给外部调用方
 /// 触发自定义动作（worker 自身已在每次变更后主动 kick 一次事件循环）。
 final class Aria2InProcessTransport implements Aria2RpcTransport {
-  Aria2InProcessTransport(this.session, {this.onMutate});
+  Aria2InProcessTransport(
+    this.session, {
+    this.onMutate,
+    this.capabilities = const <String>{},
+  });
 
   final Aria2NativeSession session;
 
@@ -22,6 +26,16 @@ final class Aria2InProcessTransport implements Aria2RpcTransport {
   /// 主要用于让上层主动刷新 UI；worker 内部已经在变更后立即跑一次事件循环，
   /// 调用方不必再为缩短首字节延迟而手动驱动。
   final void Function()? onMutate;
+
+  /// 当前库引擎构建启用的 capability 集合（由 [LibraryDaemon] 在启动时查询
+  /// 后注入，参见 [Aria2NativeSession.getCapabilities]）。空集合意味着旧
+  /// prebuilt——此时 `removeDownloadResult` / `purgeDownloadResult` 等会
+  /// 在 FFI 层走"软成功"分支，UI 看起来执行了但 stopped 列表仍在。
+  ///
+  /// transport 本身不报错（保持向后兼容），但在已知会软无效的方法上由
+  /// `LibraryDaemon` 走配套的降级提示。`Aria2InProcessTransport` 仅在
+  /// 这里记录 capability 供后续逻辑参考。
+  final Set<String> capabilities;
 
   static const _kMutatingMethods = <String>{
     RpcMethods.addUri,
@@ -90,16 +104,16 @@ final class Aria2InProcessTransport implements Aria2RpcTransport {
         await session.pause(_stringAt(params, 0), force: true);
         return 'OK';
       case RpcMethods.pauseAll:
-        await session.pauseAll();
+        await _pauseAllPreferNative(force: false);
         return 'OK';
       case RpcMethods.forcePauseAll:
-        await session.pauseAll(force: true);
+        await _pauseAllPreferNative(force: true);
         return 'OK';
       case RpcMethods.unpause:
         await session.unpause(_stringAt(params, 0));
         return 'OK';
       case RpcMethods.unpauseAll:
-        await session.unpauseAll();
+        await _unpauseAllPreferNative();
         return 'OK';
 
       case RpcMethods.purgeDownloadResult:
@@ -160,6 +174,78 @@ final class Aria2InProcessTransport implements Aria2RpcTransport {
 
       default:
         throw Aria2RpcException('库模式不支持的 RPC 方法：$method', code: -32601);
+    }
+  }
+
+  /// 优先用 native `pauseAll`，失败再退化到 O(n) 模拟。
+  ///
+  /// 新版预编译实现了 `aria2_ffi_pause_all`（参考 [aria2_ffi.cc]），一次 FFI
+  /// 调用就能批量暂停。旧版本/没打补丁的 prebuilt 则会以非 0 返回值告知
+  /// "不支持"，我们退回 Dart 侧逐条 pause 的模拟，保证语义一致。
+  Future<void> _pauseAllPreferNative({required bool force}) async {
+    try {
+      await session.pauseAll(force: force);
+      return;
+    } catch (_) {
+      // Fallback to per-task pause below.
+    }
+    await _emulatePauseAll(force: force);
+  }
+
+  Future<void> _unpauseAllPreferNative() async {
+    try {
+      await session.unpauseAll();
+      return;
+    } catch (_) {
+      // Fallback to per-task unpause below.
+    }
+    await _emulateUnpauseAll();
+  }
+
+  /// pauseAll / unpauseAll 的 Dart 侧 fallback：旧版 prebuilt 没有
+  /// `aria2_ffi_pause_all` / `aria2_ffi_unpause_all` 时枚举 active + waiting
+  /// 列表逐条调用。远程 / 子进程模式不走这里：那两条路径直接对接 aria2
+  /// 自己的 RPC，已经实现了完整语义。
+  Future<void> _emulatePauseAll({required bool force}) async {
+    final active = await session.tellActive(keys: const ['gid', 'status']);
+    final waiting = await session.tellWaiting(
+      offset: 0,
+      num: 1000,
+      keys: const ['gid', 'status'],
+    );
+    final gids = <String>{};
+    for (final t in [...active, ...waiting]) {
+      final raw = t['gid'];
+      if (raw is String && raw.isNotEmpty) gids.add(raw);
+    }
+    for (final gid in gids) {
+      try {
+        await session.pause(gid, force: force);
+      } catch (_) {
+        // 单条失败不影响其他；上层调用方只关心整体语义。
+      }
+    }
+  }
+
+  Future<void> _emulateUnpauseAll() async {
+    // tellWaiting 同时覆盖 waiting + paused（两者都在 reservedGroups_）。
+    final waiting = await session.tellWaiting(
+      offset: 0,
+      num: 1000,
+      keys: const ['gid', 'status'],
+    );
+    for (final t in waiting) {
+      final raw = t['gid'];
+      if (raw is! String || raw.isEmpty) continue;
+      final st = t['status'];
+      // 只对 paused 调 unpause；waiting 状态的任务调 unpause 会被 libaria2
+      // 拒绝（"cannot be unpaused now"），徒增噪音。
+      if (st != 'paused') continue;
+      try {
+        await session.unpause(raw);
+      } catch (_) {
+        /* ignore per-task failures */
+      }
     }
   }
 

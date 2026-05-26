@@ -24,6 +24,7 @@ import '../../providers/app_settings_provider.dart';
 import '../../providers/aria2_daemon_provider.dart';
 import '../../providers/connection_info_provider.dart'
     show ActiveEngine, ConnectionInfo, connectionInfoProvider;
+import '../../providers/library_capabilities_provider.dart';
 import '../about/about_page.dart';
 import 'aria2_global_options_page.dart';
 import 'aria2_log_page.dart';
@@ -64,6 +65,74 @@ String _engineLabel(AppLocalizations l10n, ConnectionInfo c) {
     ActiveEngine.remote => l10n.engineRemoteShort,
   };
   return '$modeLabel · ${l10n.engineCurrent(engineLabel)}';
+}
+
+/// 库引擎功能受限提示：仅当 [libraryCapabilitiesProvider] 报告缺失任何标记的
+/// 能力时显示——告知用户「prebuilt libaria2 缺补丁，请重编」。
+class _LibraryCapabilitiesWarning extends ConsumerWidget {
+  const _LibraryCapabilitiesWarning();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(libraryCapabilitiesProvider);
+    final caps = async.valueOrNull;
+    if (caps == null) return const SizedBox.shrink();
+    final missing = LibraryCapability.all.difference(caps);
+    if (missing.isEmpty) return const SizedBox.shrink();
+    final l10n = AppLocalizations.of(context)!;
+    final t = Theme.of(context);
+    final labels = missing
+        .map((c) => _localizedCapability(l10n, c))
+        .where((s) => s.isNotEmpty)
+        .join('、');
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Card(
+        color: t.colorScheme.errorContainer.withValues(alpha: 0.35),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.warning_amber_outlined, color: t.colorScheme.error),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.libraryCapabilitiesDegradedTitle,
+                      style: t.textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      l10n.libraryCapabilitiesDegradedBody(labels),
+                      style: t.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _localizedCapability(AppLocalizations l10n, String cap) {
+    switch (cap) {
+      case LibraryCapability.removeDownloadResult:
+        return l10n.libraryCapabilityRemoveDownloadResult;
+      case LibraryCapability.listReserved:
+        return l10n.libraryCapabilityListReserved;
+      case LibraryCapability.listDownloadResults:
+        return l10n.libraryCapabilityListDownloadResults;
+      case LibraryCapability.downloadHandleExt:
+        return l10n.libraryCapabilityDownloadHandleExt;
+      default:
+        return '';
+    }
+  }
 }
 
 class _ConnectionStatusCard extends ConsumerWidget {
@@ -437,13 +506,19 @@ class _SettingsFormState extends State<_SettingsForm> {
         /* 下次启动仍会从 aria2.conf 读取 */
       }
     }
-    widget.ref.invalidate(appSettingsProvider);
-    widget.ref.invalidate(aria2DaemonProvider);
+    // 先把 snackbar 派给当前 ScaffoldMessenger（即便后续 daemon invalidate
+    // 让 MaterialApp 整棵被换掉，旧 ScaffoldMessenger 也已经接到了消息），
+    // 再触发 provider 失效。否则当 SettingsPage 从 DaemonErrorScreen 上面
+    // 被 push 出来时，invalidate(aria2DaemonProvider) 会让上层 MaterialApp
+    // 被替换、SettingsPage 一并 unmount，`if (mounted)` 直接 false → 用户
+    // 看不到任何「已保存」反馈。
     if (mounted) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(l10n.snackSaved)));
     }
+    widget.ref.invalidate(appSettingsProvider);
+    widget.ref.invalidate(aria2DaemonProvider);
   }
 
   Future<void> _exportSettings(AppLocalizations l10n) async {
@@ -603,6 +678,7 @@ class _SettingsFormState extends State<_SettingsForm> {
                   setState(() => _connectionMode = v.first),
             ),
           const _ConnectionStatusCard(),
+          const _LibraryCapabilitiesWarning(),
           if (_connectionMode == ConnectionMode.local && !kIsWeb) ...[
             const SizedBox(height: 16),
             Text(l10n.settingsEngine, style: t.textTheme.titleSmall),

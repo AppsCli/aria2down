@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/queue_uris.dart';
 import '../../core/reveal_path.dart';
 import '../../core/rpc_error_message.dart';
 import '../../providers/aria2_daemon_provider.dart';
@@ -13,10 +12,16 @@ import '../../providers/task_refresh_provider.dart';
 class TaskDetailActionBar extends ConsumerWidget {
   const TaskDetailActionBar({
     super.key,
+    required this.gid,
     required this.status,
     required this.onChanged,
   });
 
+  /// 来自路由参数 `/tasks/detail/:gid`，永远是有效字符串。
+  /// **不要**从 [status] 取 gid——如果 `tellStatus` 返回空 Map（库模式下任务
+  /// 已被 purge），`status['gid']` 会是 null，`'${null}'` 变成字符串
+  /// "null"，FFI 拿到非法 GID 抛 -1004。
+  final String gid;
   final Map<String, dynamic> status;
   final VoidCallback onChanged;
 
@@ -24,7 +29,6 @@ class TaskDetailActionBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = AppLocalizations.of(context)!;
     final st = '${status['status'] ?? ''}';
-    final gid = '${status['gid']}';
 
     return SafeArea(
       child: Padding(
@@ -72,7 +76,7 @@ class TaskDetailActionBar extends ConsumerWidget {
                     .read(aria2DaemonProvider)
                     .value!
                     .client
-                    .remove(gid, force: true);
+                    .removeTask(gid, status: st);
                 if (context.mounted) context.pop();
               }),
               icon: const Icon(Icons.delete_outline),
@@ -85,13 +89,17 @@ class TaskDetailActionBar extends ConsumerWidget {
                   if (uris.isEmpty) return;
                   final d = ref.read(aria2DaemonProvider).value;
                   if (d == null) return;
-                  final r = await queueUrisToAria2(d.client, uris);
-                  if (r.added == 0 && context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(l10n.snackAllDuplicates)),
-                    );
-                    return;
-                  }
+                  // 单任务重试：原任务的 `files[].uris[]` 是同一资源的镜像，
+                  // 必须用一次 addUri([all]) 让 aria2 当作同一任务的多个镜像；
+                  // 不要走 queueUrisToAria2（那是面向「N 条独立链接 → N 个独立
+                  // 任务」的剪贴板场景）。`dir` 沿用原任务以避免落到默认目录。
+                  final opts = <String, dynamic>{};
+                  final dir = status['dir'];
+                  if (dir is String && dir.isNotEmpty) opts['dir'] = dir;
+                  await d.client.addUri(
+                    uris,
+                    options: opts.isEmpty ? null : opts,
+                  );
                   if (context.mounted) {
                     ScaffoldMessenger.of(
                       context,
@@ -117,7 +125,11 @@ class TaskDetailActionBar extends ConsumerWidget {
       await action();
       onChanged();
       ref.read(taskRefreshSignalProvider.notifier).state++;
-    } catch (e) {
+    } catch (e, st) {
+      // 详情底部按钮（暂停/恢复/删除/重试）失败：除 Aria2LoggingTransport
+      // 的 RPC 行日志外，再补一条带 gid 上下文，便于关联 console 与 UI。
+      debugPrint('[task_detail_actions] $gid action failed: $e');
+      debugPrintStack(stackTrace: st, label: 'task_detail_actions');
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,

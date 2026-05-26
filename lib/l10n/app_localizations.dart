@@ -314,6 +314,36 @@ abstract class AppLocalizations {
   /// **'Clear'**
   String get historyClearConfirm;
 
+  /// No description provided for @historyDeleteTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from history'**
+  String get historyDeleteTooltip;
+
+  /// No description provided for @historyDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from history?'**
+  String get historyDeleteTitle;
+
+  /// No description provided for @historyDeleteMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Removes this entry from the local history. Does not affect the aria2 queue. Files on disk are kept.'**
+  String get historyDeleteMessage;
+
+  /// No description provided for @historyDeleteConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get historyDeleteConfirm;
+
+  /// No description provided for @historyDeleteSnack.
+  ///
+  /// In en, this message translates to:
+  /// **'Removed from history'**
+  String get historyDeleteSnack;
+
   /// No description provided for @mobilePathSheetTitle.
   ///
   /// In en, this message translates to:
@@ -409,6 +439,96 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No stopped tasks'**
   String get emptyStopped;
+
+  /// No description provided for @statusPaused.
+  ///
+  /// In en, this message translates to:
+  /// **'Paused'**
+  String get statusPaused;
+
+  /// No description provided for @statusComplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Complete'**
+  String get statusComplete;
+
+  /// No description provided for @statusError.
+  ///
+  /// In en, this message translates to:
+  /// **'Error'**
+  String get statusError;
+
+  /// No description provided for @statusRemoved.
+  ///
+  /// In en, this message translates to:
+  /// **'Removed'**
+  String get statusRemoved;
+
+  /// No description provided for @taskDetailHistorySnapshotBanner.
+  ///
+  /// In en, this message translates to:
+  /// **'Task is no longer in aria2; showing local history snapshot. Live fields (speed, peers, etc.) are unavailable.'**
+  String get taskDetailHistorySnapshotBanner;
+
+  /// No description provided for @taskDetailBackToList.
+  ///
+  /// In en, this message translates to:
+  /// **'Back to task list'**
+  String get taskDetailBackToList;
+
+  /// No description provided for @libraryCapabilitiesDegradedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Library engine running with limited capabilities'**
+  String get libraryCapabilitiesDegradedTitle;
+
+  /// No description provided for @libraryCapabilitiesDegradedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This libaria2 build is missing some patches: {missing}. Stopped-task removal may silently no-op and waiting/stopped lists fall back to the Dart-side simulator. Rerun ./scripts/build_libaria2_<platform>.sh to refresh the prebuilt artifacts.'**
+  String libraryCapabilitiesDegradedBody(String missing);
+
+  /// No description provided for @libraryCapabilityRemoveDownloadResult.
+  ///
+  /// In en, this message translates to:
+  /// **'delete completed tasks'**
+  String get libraryCapabilityRemoveDownloadResult;
+
+  /// No description provided for @libraryCapabilityListReserved.
+  ///
+  /// In en, this message translates to:
+  /// **'enumerate waiting tasks'**
+  String get libraryCapabilityListReserved;
+
+  /// No description provided for @libraryCapabilityListDownloadResults.
+  ///
+  /// In en, this message translates to:
+  /// **'enumerate stopped tasks'**
+  String get libraryCapabilityListDownloadResults;
+
+  /// No description provided for @libraryCapabilityDownloadHandleExt.
+  ///
+  /// In en, this message translates to:
+  /// **'BitTorrent top-level fields (numSeeders, etc.)'**
+  String get libraryCapabilityDownloadHandleExt;
+
+  /// No description provided for @loadMoreStopped.
+  ///
+  /// In en, this message translates to:
+  /// **'Load more'**
+  String get loadMoreStopped;
+
+  /// No description provided for @loadMoreStoppedWithCount.
+  ///
+  /// In en, this message translates to:
+  /// **'Load more ({loaded} loaded)'**
+  String loadMoreStoppedWithCount(int loaded);
+
+  /// No description provided for @loadedAllStopped.
+  ///
+  /// In en, this message translates to:
+  /// **'All stopped tasks loaded ({total})'**
+  String loadedAllStopped(int total);
 
   /// No description provided for @hintUrls.
   ///
@@ -1175,6 +1295,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'aria2down\n↓ {down}  ↑ {up}\nactive {active} · waiting {waiting}'**
   String trayToolTipStats(String down, String up, int active, int waiting);
+
+  /// No description provided for @trayToolTipOffline.
+  ///
+  /// In en, this message translates to:
+  /// **'aria2down\nDisconnected — click to retry'**
+  String get trayToolTipOffline;
 
   /// No description provided for @startMinimized.
   ///

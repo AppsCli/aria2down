@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/theme.dart';
 import '../../aria2/client/aria2_client.dart' show GlobalStat;
 import '../../aria2/client/ws_listener.dart';
 import '../../aria2/daemon/aria2_daemon.dart';
@@ -47,9 +48,19 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
   Timer? _searchDebounce;
   int _pollIntervalSec = 8;
   ProviderSubscription<AsyncValue<Aria2Daemon>>? _daemonListen;
+  ProviderSubscription<bool>? _bgListen;
   StreamSubscription<Aria2RpcNotification>? _wsSub;
-  int? _wsBoundPort;
+  // 用 daemon 实例身份判断是否需要重绑 WS：LibraryDaemon 始终 rpcPort==0,
+  // 用端口号判断会导致库模式 daemon 重启后事件流仍指向已关闭的旧 bridge。
+  Aria2Daemon? _wsBoundDaemon;
+  // 缓存当前 WS 是否可用，以便后台/前台切换时重启计时器仍能选对间隔。
+  bool _wsConnected = false;
   TaskHistoryRecorder? _historyRecorder;
+  // 跟踪 daemon 内部 client/WS 的重建代际：LocalDaemon auto-restart 或
+  // RemoteDaemon WS 重连成功时会自增此值。同一 daemon 对象但 generation
+  // 变化时，需要重绑 WS 订阅并以 _最新的_ daemon.client 重建历史记录器。
+  ValueListenable<int>? _generationListenable;
+  int _lastBoundGeneration = -1;
 
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
@@ -72,6 +83,21 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
   int? _stoppedSig;
   int? _globalSig;
 
+  // Stopped 列表分页参数。
+  //
+  // 之前实现 `tellStopped(num: 50)` 固定上限，长期运行的实例（大量已完成任务）
+  // 看不到 50 条之外的记录。改为按步长 [_stoppedPageStep] 增量加载，最高
+  // [_kStoppedFetchLimitMax]——单次 RPC 解析数千条 JSON 已经够慢，再大反而
+  // 拖慢列表渲染；超过上限的部分用户可去「历史」Tab 查看本地持久化的副本。
+  //
+  // 「已加载到末尾」由本轮 `tellStopped` 返回数量是否 < 请求数判定；该位用于
+  // 隐藏「加载更多」按钮。
+  static const int _kStoppedFetchInitial = 200;
+  static const int _kStoppedPageStep = 200;
+  static const int _kStoppedFetchLimitMax = 2000;
+  int _stoppedFetchLimit = _kStoppedFetchInitial;
+  bool _stoppedReachedEnd = false;
+
   @override
   void initState() {
     super.initState();
@@ -89,23 +115,26 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
     _daemonListen = ref.listenManual(aria2DaemonProvider, (prev, next) {
       next.whenData((daemon) {
         if (!mounted) return;
-        if (_wsBoundPort == daemon.rpcPort) return;
-        _wsBoundPort = daemon.rpcPort;
-        _version = null;
-        unawaited(_wsSub?.cancel());
-        _wsSub = null;
-        _historyRecorder = TaskHistoryRecorder(daemon.client);
-        final ws = daemon.wsNotifier;
-        _restartPollTimer(wsConnected: ws != null);
-        if (ws != null) {
-          _wsSub = ws.notifications.listen((n) {
-            if (!mounted) return;
-            unawaited(_historyRecorder?.onNotification(n));
-            _scheduleTick(debounced: true);
-          });
+        final gen = daemon.connectionGeneration.value;
+        if (identical(_wsBoundDaemon, daemon) && _lastBoundGeneration == gen) {
+          return;
         }
+        // 切换到一个不同的 daemon：解绑旧 generation listener。
+        if (!identical(_wsBoundDaemon, daemon)) {
+          _generationListenable?.removeListener(_onConnectionGenerationBumped);
+          _generationListenable = daemon.connectionGeneration
+            ..addListener(_onConnectionGenerationBumped);
+          _wsBoundDaemon = daemon;
+        }
+        _bindToDaemon(daemon);
       });
     }, fireImmediately: true);
+
+    // 应用前台/后台切换时立刻重算轮询间隔（移动端后台降到 60s 省电）。
+    _bgListen = ref.listenManual<bool>(appInBackgroundProvider, (prev, next) {
+      if (prev == next || !mounted) return;
+      _restartPollTimer(wsConnected: _wsConnected);
+    });
   }
 
   void _restartPollTimer({required bool wsConnected}) {
@@ -169,6 +198,7 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
         return;
       }
       final fetchVersion = _version == null || manual;
+      final stoppedRequestedNum = _stoppedFetchLimit;
       final futures = <Future<dynamic>>[
         d.client.tellActive(keys: kTaskListTellKeys),
         d.client.tellWaiting(
@@ -176,7 +206,11 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
           num: kTaskListTellWaitingMax,
           keys: kTaskListTellKeys,
         ),
-        d.client.tellStopped(offset: 0, num: 50, keys: kTaskListTellKeys),
+        d.client.tellStopped(
+          offset: 0,
+          num: stoppedRequestedNum,
+          keys: kTaskListTellKeys,
+        ),
         d.client.getGlobalStat(),
       ];
       if (fetchVersion) {
@@ -186,6 +220,10 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
       final stopped = results[2] as List<Map<String, dynamic>>;
       await _historyRecorder?.onStoppedList(stopped);
       if (!mounted) return;
+      // 返回不足请求量 || 已撞顶 → 视为没有更多数据，隐藏「加载更多」。
+      final reachedEnd =
+          stopped.length < stoppedRequestedNum ||
+          _stoppedFetchLimit >= _kStoppedFetchLimitMax;
       final active = List<Map<String, dynamic>>.from(
         results[0] as List<Map<String, dynamic>>,
       );
@@ -208,6 +246,7 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
           waitingSig == _waitingSig &&
           stoppedSig == _stoppedSig &&
           globalSig == _globalSig &&
+          reachedEnd == _stoppedReachedEnd &&
           (!fetchVersion || identical(version, _version));
 
       if (unchanged) {
@@ -223,6 +262,7 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
           _stoppedSig = stoppedSig;
           _global = newGlobal;
           _globalSig = globalSig;
+          _stoppedReachedEnd = reachedEnd;
           _version = version;
           if (manual) _refreshing = false;
         });
@@ -234,7 +274,12 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
       if (manual) {
         ref.invalidate(taskHistoryProvider);
       }
-    } catch (e) {
+    } catch (e, st) {
+      // RPC 层日志已由 Aria2LoggingTransport 打印；这里补一条带 manual /
+      // active count 上下文的行，便于在 console 里把"任务列表整体加载失败"
+      // 与某一条具体的 tellActive/tellWaiting 错误关联起来。
+      debugPrint('[task_list] _runTick(manual=$manual) failed: $e');
+      debugPrintStack(stackTrace: st, label: 'task_list _runTick');
       if (mounted) {
         setState(() {
           _loadError = '$e';
@@ -278,7 +323,9 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
         ).showSnackBar(SnackBar(content: Text(l10n.snackRetryQueued)));
       }
       _scheduleTick(manual: true);
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[task_list] retry addUri (${uris.length} uri) failed: $e');
+      debugPrintStack(stackTrace: st, label: 'task_list retry');
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -305,19 +352,28 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
       final result = await queueUrisToAria2(d.client, uris);
       if (!mounted) return;
       if (result.added == 0) {
+        // 无成功添加：若有 addUri 错误优先展示真实原因（连接失败/鉴权等），
+        // 否则说明全是重复 URI。
+        final msg = result.errors.isNotEmpty
+            ? formatRpcError(l10n, result.errors.first.error)
+            : l10n.snackAllDuplicates;
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(l10n.snackAllDuplicates)));
+        ).showSnackBar(SnackBar(content: Text(msg)));
         return;
       }
-      final msg = result.skipped > 0
-          ? l10n.snackAddedWithSkipped(result.added, result.skipped)
+      // 把 errors 计入 skipped 摘要，让用户知道并非全成功。
+      final skippedTotal = result.skipped + result.errors.length;
+      final msg = skippedTotal > 0
+          ? l10n.snackAddedWithSkipped(result.added, skippedTotal)
           : (result.added == 1
                 ? l10n.snackAdded
                 : l10n.snackAddedCount(result.added));
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       _scheduleTick(manual: true);
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[task_list] paste-and-queue failed: $e');
+      debugPrintStack(stackTrace: st, label: 'task_list paste-and-queue');
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -345,7 +401,9 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
           context,
         ).showSnackBar(SnackBar(content: Text(l10n.historyImportDone(n))));
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[task_list] import history failed: $e');
+      debugPrintStack(stackTrace: st, label: 'task_list import-history');
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -397,7 +455,9 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
         ).showSnackBar(SnackBar(content: Text(l10n.snackBatchDone)));
       }
       _scheduleTick(manual: true);
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[task_list] batch action failed: $e');
+      debugPrintStack(stackTrace: st, label: 'task_list batch');
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -497,7 +557,10 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
 
   @override
   void dispose() {
+    _generationListenable?.removeListener(_onConnectionGenerationBumped);
+    _generationListenable = null;
     _daemonListen?.close();
+    _bgListen?.close();
     unawaited(_wsSub?.cancel());
     _timer?.cancel();
     _tickDebounce?.cancel();
@@ -505,6 +568,40 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
     _searchCtrl.dispose();
     _tabs.dispose();
     super.dispose();
+  }
+
+  /// daemon 内部 client/WS 被重建（LocalDaemon auto-restart / RemoteDaemon
+  /// WS 重连）时调用：重新读取最新 `daemon.client` 与 `daemon.wsNotifier`
+  /// 并重绑订阅。
+  void _onConnectionGenerationBumped() {
+    if (!mounted) return;
+    final d = _wsBoundDaemon;
+    if (d == null) return;
+    _bindToDaemon(d);
+    // 数据可能因重启滞后，主动拉取一次。
+    unawaited(_scheduleTick());
+  }
+
+  /// 用给定 daemon 的最新 client/WS 绑定订阅、重建历史记录器。
+  ///
+  /// 调用方应保证 [daemon] == `_wsBoundDaemon`；否则 daemon 切换时调用方
+  /// 需先更新 `_wsBoundDaemon` 与 generation listener 的注册关系。
+  void _bindToDaemon(Aria2Daemon daemon) {
+    _lastBoundGeneration = daemon.connectionGeneration.value;
+    _version = null;
+    unawaited(_wsSub?.cancel());
+    _wsSub = null;
+    _historyRecorder = TaskHistoryRecorder(daemon.client);
+    final ws = daemon.wsNotifier;
+    _wsConnected = ws != null;
+    _restartPollTimer(wsConnected: _wsConnected);
+    if (ws != null) {
+      _wsSub = ws.notifications.listen((n) {
+        if (!mounted) return;
+        unawaited(_historyRecorder?.onNotification(n));
+        _scheduleTick(debounced: true);
+      });
+    }
   }
 
   @override
@@ -570,8 +667,13 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
                       final gid = '${t['gid']}';
                       if (gid.isEmpty) continue;
                       try {
-                        await d.client.remove(gid, force: true);
-                      } catch (_) {}
+                        await d.client.removeTask(
+                          gid,
+                          status: '${t['status']}',
+                        );
+                      } catch (e) {
+                        debugPrint('[task_list] removeTask($gid) failed: $e');
+                      }
                     }
                   });
                 case 'clear_stopped_results':
@@ -581,7 +683,11 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
                       if (gid.isEmpty) continue;
                       try {
                         await d.client.removeDownloadResult(gid);
-                      } catch (_) {}
+                      } catch (e) {
+                        debugPrint(
+                          '[task_list] removeDownloadResult($gid) failed: $e',
+                        );
+                      }
                     }
                   });
                 case 'export_snapshot':
@@ -691,82 +797,56 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (_global != null)
-            Material(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              child: InkWell(
-                onTap: () async {
-                  final text = l10n.speedGlobalExtended(
-                    _global!.downFmt,
-                    _global!.upFmt,
-                    _global!.numActive,
-                    _global!.numWaiting,
-                    _global!.numStopped,
-                  );
-                  await Clipboard.setData(ClipboardData(text: text));
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(SnackBar(content: Text(l10n.snackCopied)));
-                },
+            _GlobalStatsBar(
+              stats: _global!,
+              version: _version,
+              compact: compact,
+              wsOn: wsOn,
+              onCopy: () async {
+                final text = l10n.speedGlobalExtended(
+                  _global!.downFmt,
+                  _global!.upFmt,
+                  _global!.numActive,
+                  _global!.numWaiting,
+                  _global!.numStopped,
+                );
+                await Clipboard.setData(ClipboardData(text: text));
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text(l10n.snackCopied)));
+              },
+            ),
+          if (_loadError != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+              child: Card(
+                color: Theme.of(
+                  context,
+                ).colorScheme.errorContainer.withValues(alpha: 0.4),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
-                  ),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
                   child: Row(
                     children: [
+                      Icon(
+                        Icons.error_outline,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          compact
-                              ? l10n.speedGlobal(
-                                  _global!.downFmt,
-                                  _global!.upFmt,
-                                  _global!.numActive,
-                                  _global!.numWaiting,
-                                )
-                              : l10n.speedGlobalExtended(
-                                  _global!.downFmt,
-                                  _global!.upFmt,
-                                  _global!.numActive,
-                                  _global!.numWaiting,
-                                  _global!.numStopped,
-                                ),
-                          style: Theme.of(context).textTheme.bodyMedium,
-                          maxLines: compact ? 2 : null,
-                          overflow: compact ? TextOverflow.ellipsis : null,
+                          formatRpcError(l10n, Exception(_loadError!)),
                         ),
                       ),
-                      if (!compact && _version != null)
-                        Text(
-                          l10n.aria2Version('${_version!['version'] ?? ''}'),
-                          style: Theme.of(context).textTheme.labelSmall,
-                        ),
+                      TextButton(
+                        onPressed: () => _scheduleTick(manual: true),
+                        child: Text(l10n.retry),
+                      ),
                     ],
                   ),
                 ),
               ),
             ),
-          if (_loadError != null)
-            MaterialBanner(
-              content: Text(formatRpcError(l10n, Exception(_loadError!))),
-              leading: Icon(
-                Icons.error_outline,
-                color: Theme.of(context).colorScheme.error,
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => _scheduleTick(manual: true),
-                  child: Text(l10n.retry),
-                ),
-              ],
-            ),
-          Padding(
-            padding: const EdgeInsets.only(left: 16, bottom: 4),
-            child: Text(
-              wsOn ? l10n.wsConnected : l10n.wsPolling,
-              style: Theme.of(context).textTheme.labelSmall,
-            ),
-          ),
           Expanded(
             child: Center(
               child: ConstrainedBox(
@@ -788,6 +868,12 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
                       _filter(_stopped),
                       l10n.emptyStopped,
                       showRetry: true,
+                      // stopped tab 专属：底部「加载更多」 / 「已加载全部」 footer。
+                      stoppedTotalLoaded: _stopped.length,
+                      onLoadMoreStopped: _stoppedReachedEnd
+                          ? null
+                          : _loadMoreStopped,
+                      stoppedReachedEnd: _stoppedReachedEnd,
                     ),
                     TaskHistoryTab(
                       searchQuery: _searchQuery,
@@ -811,6 +897,9 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
     List<Map<String, dynamic>> items,
     String emptyLabel, {
     required bool showRetry,
+    Future<void> Function()? onLoadMoreStopped,
+    bool stoppedReachedEnd = false,
+    int stoppedTotalLoaded = 0,
   }) {
     final narrow = !isWideLayout(context);
     return RefreshIndicator(
@@ -829,8 +918,27 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
         onPause: _pauseTask,
         onUnpause: _unpauseTask,
         onRemove: _removeTask,
+        onLoadMore: onLoadMoreStopped,
+        loadMoreReachedEnd: stoppedReachedEnd,
+        loadMoreLoadedCount: stoppedTotalLoaded,
       ),
     );
+  }
+
+  /// 用户点击「加载更多」时把请求上限抬高一级，并立即触发一次 manual tick。
+  ///
+  /// 调用方负责检查 [_stoppedReachedEnd]——已到末尾时不会调用本方法。
+  Future<void> _loadMoreStopped() async {
+    if (_stoppedReachedEnd) return;
+    final next = (_stoppedFetchLimit + _kStoppedPageStep).clamp(
+      _kStoppedFetchInitial,
+      _kStoppedFetchLimitMax,
+    );
+    if (next == _stoppedFetchLimit) return;
+    setState(() {
+      _stoppedFetchLimit = next;
+    });
+    await _scheduleTick(manual: true);
   }
 
   Future<void> _pauseTask(String gid) async {
@@ -839,7 +947,11 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
     try {
       await d.client.pause(gid);
       unawaited(_scheduleTick());
-    } catch (_) {}
+    } catch (e) {
+      // 行内按钮点击失败：Aria2LoggingTransport 已记录详细 RPC 错误，
+      // 这里补一条带 gid 与操作语义的 console 行便于排查。
+      debugPrint('[task_list] pause($gid) failed: $e');
+    }
   }
 
   Future<void> _unpauseTask(String gid) async {
@@ -848,16 +960,20 @@ class _TaskListPageState extends ConsumerState<TaskListPage>
     try {
       await d.client.unpause(gid);
       unawaited(_scheduleTick());
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[task_list] unpause($gid) failed: $e');
+    }
   }
 
-  Future<void> _removeTask(String gid) async {
+  Future<void> _removeTask(String gid, {String? status}) async {
     final d = ref.read(aria2DaemonProvider).value;
     if (d == null) return;
     try {
-      await d.client.remove(gid, force: true);
+      await d.client.removeTask(gid, status: status);
       unawaited(_scheduleTick());
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[task_list] removeTask($gid, status=$status) failed: $e');
+    }
   }
 }
 
@@ -928,6 +1044,9 @@ class _TaskListView extends StatelessWidget {
     required this.onPause,
     required this.onUnpause,
     required this.onRemove,
+    this.onLoadMore,
+    this.loadMoreReachedEnd = false,
+    this.loadMoreLoadedCount = 0,
   });
 
   final List<Map<String, dynamic>> items;
@@ -942,7 +1061,16 @@ class _TaskListView extends StatelessWidget {
   final VoidCallback onAfterAction;
   final Future<void> Function(String gid) onPause;
   final Future<void> Function(String gid) onUnpause;
-  final Future<void> Function(String gid) onRemove;
+  final Future<void> Function(String gid, {String? status}) onRemove;
+
+  /// stopped tab 专属：抬高 fetch limit 并重拉数据。null 时不显示 footer。
+  final Future<void> Function()? onLoadMore;
+
+  /// 已加载到末尾时显示「已加载全部」提示而不是按钮。
+  final bool loadMoreReachedEnd;
+
+  /// 给「加载更多 (已加载 N 条)」按钮显示用。
+  final int loadMoreLoadedCount;
 
   @override
   Widget build(BuildContext context) {
@@ -951,19 +1079,12 @@ class _TaskListView extends StatelessWidget {
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
           SizedBox(
-            height: MediaQuery.sizeOf(context).height * 0.25,
+            height: MediaQuery.sizeOf(context).height * 0.55,
             child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(emptyLabel),
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: onAddTask,
-                    icon: const Icon(Icons.add),
-                    label: Text(l10n.navAdd),
-                  ),
-                ],
+              child: _EmptyTasksState(
+                label: emptyLabel,
+                onAddTask: onAddTask,
+                addLabel: l10n.navAdd,
               ),
             ),
           ),
@@ -971,13 +1092,25 @@ class _TaskListView extends StatelessWidget {
       );
     }
     final colors = Theme.of(context).colorScheme;
+    final showFooter = onLoadMore != null;
+    // 末尾追加 footer item 时把 itemCount + 1；不影响 separatorBuilder 的索引
+    // 含义，因为 ListView.separated 的 separator 只出现在两个 item 之间。
+    final totalCount = showFooter ? items.length + 1 : items.length;
     return ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.only(bottom: 24),
-      itemCount: items.length,
+      itemCount: totalCount,
       addAutomaticKeepAlives: false,
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (context, i) {
+        if (showFooter && i == items.length) {
+          return _StoppedTabFooter(
+            l10n: l10n,
+            loaded: loadMoreLoadedCount,
+            reachedEnd: loadMoreReachedEnd,
+            onLoadMore: onLoadMore,
+          );
+        }
         final t = items[i];
         return _TaskListTile(
           key: ValueKey('${t['gid']}'),
@@ -995,6 +1128,80 @@ class _TaskListView extends StatelessWidget {
           onRemove: onRemove,
         );
       },
+    );
+  }
+}
+
+/// stopped tab 末尾的「加载更多」 / 「已加载全部」 footer。
+///
+/// 用一个独立 StatefulWidget 自管 loading 状态：避免点击后整个 stopped tab
+/// 都触发 setState rebuild（_TaskListView 是 StatelessWidget，无法承载局部
+/// loading state），按钮反馈更轻量。
+class _StoppedTabFooter extends StatefulWidget {
+  const _StoppedTabFooter({
+    required this.l10n,
+    required this.loaded,
+    required this.reachedEnd,
+    required this.onLoadMore,
+  });
+
+  final AppLocalizations l10n;
+  final int loaded;
+  final bool reachedEnd;
+  final Future<void> Function()? onLoadMore;
+
+  @override
+  State<_StoppedTabFooter> createState() => _StoppedTabFooterState();
+}
+
+class _StoppedTabFooterState extends State<_StoppedTabFooter> {
+  bool _loading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = widget.l10n;
+    final theme = Theme.of(context);
+    if (widget.reachedEnd) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Center(
+          child: Text(
+            l10n.loadedAllStopped(widget.loaded),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+      child: Center(
+        child: OutlinedButton.icon(
+          onPressed: _loading
+              ? null
+              : () async {
+                  setState(() => _loading = true);
+                  try {
+                    await widget.onLoadMore?.call();
+                  } finally {
+                    if (mounted) setState(() => _loading = false);
+                  }
+                },
+          icon: _loading
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.expand_more),
+          label: Text(
+            widget.loaded > 0
+                ? l10n.loadMoreStoppedWithCount(widget.loaded)
+                : l10n.loadMoreStopped,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1027,7 +1234,7 @@ class _TaskListTile extends StatelessWidget {
   final VoidCallback onAfterAction;
   final Future<void> Function(String gid) onPause;
   final Future<void> Function(String gid) onUnpause;
-  final Future<void> Function(String gid) onRemove;
+  final Future<void> Function(String gid, {String? status}) onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -1041,16 +1248,26 @@ class _TaskListTile extends StatelessWidget {
     final canOpen = resolveRevealPath(t) != null;
     final canRetry = showRetry && extractUrisFromTask(t).isNotEmpty;
     final eta = formatEta(t['eta']);
-    final speed = int.tryParse('${t['downloadSpeed']}') ?? 0;
-    final statusLine = [
-      status,
-      if (speed > 0) formatSpeed(speed),
-      if (eta != null) eta,
-    ].join(' · ');
+    final dlSpeed = int.tryParse('${t['downloadSpeed']}') ?? 0;
+    final ulSpeed = int.tryParse('${t['uploadSpeed']}') ?? 0;
     final errMsg = t['errorMessage'];
     final errorText = errMsg is String && errMsg.isNotEmpty ? errMsg : null;
+    final accents = Aria2downColors.of(context);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
 
-    final tile = ListTile(
+    final palette = _statusPalette(status, accents);
+    final percentText = total > 0
+        ? '${(progress * 100).clamp(0, 100).toStringAsFixed(progress >= 1 ? 0 : 1)}%'
+        : null;
+    final titleStyle = theme.textTheme.titleSmall?.copyWith(
+      fontWeight: FontWeight.w600,
+      color: status == 'paused' || status == 'removed'
+          ? scheme.onSurfaceVariant
+          : scheme.onSurface,
+    );
+
+    final tile = InkWell(
       onTap: () => context.push('/tasks/detail/$gid'),
       onLongPress: () => showTaskContextSheet(
         context,
@@ -1058,61 +1275,161 @@ class _TaskListTile extends StatelessWidget {
         onOpenFolder: canOpen ? () => onOpenFolder(t) : null,
         onAfterAction: onAfterAction,
       ),
-      title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            compactTiles ? statusLine : '$statusLine\n$gid',
-            maxLines: compactTiles ? 1 : 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          if (errorText != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(
-                errorText,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: colors.error, fontSize: 12),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          16,
+          compactTiles ? 10 : 12,
+          8,
+          compactTiles ? 10 : 12,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _TaskStatusBadge(palette: palette),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: titleStyle,
+                        ),
+                      ),
+                      if (percentText != null) ...[
+                        const SizedBox(width: 8),
+                        Text(
+                          percentText,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: palette.fg,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: progress.clamp(0.0, 1.0),
+                      backgroundColor: scheme.surfaceContainerHighest,
+                      valueColor: AlwaysStoppedAnimation<Color>(palette.fg),
+                      minHeight: 5,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _StatusBadge(
+                        palette: palette,
+                        label: _statusLabel(l10n, status),
+                      ),
+                      if (dlSpeed > 0)
+                        _MetaBadge(
+                          icon: Icons.arrow_downward_rounded,
+                          color: accents.downloadAccent,
+                          text: formatSpeed(dlSpeed),
+                        ),
+                      if (ulSpeed > 0)
+                        _MetaBadge(
+                          icon: Icons.arrow_upward_rounded,
+                          color: accents.uploadAccent,
+                          text: formatSpeed(ulSpeed),
+                        ),
+                      if (eta != null)
+                        _MetaBadge(
+                          icon: Icons.schedule,
+                          color: scheme.onSurfaceVariant,
+                          text: eta,
+                        ),
+                      if (!compactTiles)
+                        _MetaBadge(
+                          icon: Icons.tag,
+                          color: scheme.onSurfaceVariant,
+                          text: gid,
+                          monospace: true,
+                        ),
+                    ],
+                  ),
+                  if (errorText != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            size: 14,
+                            color: scheme.error,
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              errorText,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: scheme.error,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
             ),
-          LinearProgressIndicator(value: progress.clamp(0.0, 1.0)),
-        ],
+            const SizedBox(width: 8),
+            if (enableSwipeActions)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, right: 4),
+                child: Icon(Icons.chevron_right, color: scheme.outline),
+              )
+            else
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (canOpen)
+                    IconButton(
+                      tooltip: l10n.openFolder,
+                      icon: const Icon(Icons.folder_open_outlined),
+                      onPressed: () => onOpenFolder(t),
+                    ),
+                  if (canRetry)
+                    IconButton(
+                      tooltip: l10n.retry,
+                      icon: const Icon(Icons.refresh),
+                      onPressed: () => onRetry(t),
+                    ),
+                  if (status == 'active' || status == 'waiting')
+                    IconButton(
+                      icon: const Icon(Icons.pause),
+                      onPressed: () => onPause(gid),
+                    ),
+                  if (status == 'paused')
+                    IconButton(
+                      icon: const Icon(Icons.play_arrow),
+                      onPressed: () => onUnpause(gid),
+                    ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () => onRemove(gid, status: status),
+                  ),
+                ],
+              ),
+          ],
+        ),
       ),
-      trailing: enableSwipeActions
-          ? Icon(Icons.chevron_right, color: colors.outline)
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (canOpen)
-                  IconButton(
-                    tooltip: l10n.openFolder,
-                    icon: const Icon(Icons.folder_open_outlined),
-                    onPressed: () => onOpenFolder(t),
-                  ),
-                if (canRetry)
-                  IconButton(
-                    tooltip: l10n.retry,
-                    icon: const Icon(Icons.refresh),
-                    onPressed: () => onRetry(t),
-                  ),
-                if (status == 'active' || status == 'waiting')
-                  IconButton(
-                    icon: const Icon(Icons.pause),
-                    onPressed: () => onPause(gid),
-                  ),
-                if (status == 'paused')
-                  IconButton(
-                    icon: const Icon(Icons.play_arrow),
-                    onPressed: () => onUnpause(gid),
-                  ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () => onRemove(gid),
-                ),
-              ],
-            ),
     );
 
     if (!enableSwipeActions) return tile;
@@ -1165,8 +1482,481 @@ class _TaskListTile extends StatelessWidget {
         );
         return ok ?? false;
       },
-      onDismissed: (_) => onRemove(gid),
+      onDismissed: (_) => onRemove(gid, status: status),
       child: tile,
+    );
+  }
+}
+
+/// 空任务列表占位：大图标 + 标题 + 行动按钮。比朴素的 Text + Button 更有"招呼
+/// 用户来添加任务"的引导感。
+class _EmptyTasksState extends StatelessWidget {
+  const _EmptyTasksState({
+    required this.label,
+    required this.onAddTask,
+    required this.addLabel,
+  });
+  final String label;
+  final VoidCallback onAddTask;
+  final String addLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 88,
+          height: 88,
+          decoration: BoxDecoration(
+            color: scheme.primaryContainer.withValues(alpha: 0.35),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            Icons.download_for_offline_outlined,
+            size: 44,
+            color: scheme.primary,
+          ),
+        ),
+        const SizedBox(height: 20),
+        Text(
+          label,
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: scheme.onSurface,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 20),
+        FilledButton.icon(
+          onPressed: onAddTask,
+          icon: const Icon(Icons.add),
+          label: Text(addLabel),
+        ),
+      ],
+    );
+  }
+}
+
+/// 任务状态对应的色板（前景色 + 表面色）。
+class _StatusPalette {
+  const _StatusPalette(this.fg, this.surface);
+  final Color fg;
+  final Color surface;
+}
+
+_StatusPalette _statusPalette(String status, Aria2downColors a) {
+  switch (status) {
+    case 'active':
+      return _StatusPalette(a.statusActive, a.statusActiveSurface);
+    case 'paused':
+      return _StatusPalette(a.statusPaused, a.statusPausedSurface);
+    case 'complete':
+      return _StatusPalette(a.statusComplete, a.statusCompleteSurface);
+    case 'error':
+    case 'removed':
+      return _StatusPalette(a.statusError, a.statusErrorSurface);
+    case 'waiting':
+    default:
+      return _StatusPalette(a.statusWaiting, a.statusWaitingSurface);
+  }
+}
+
+String _statusLabel(AppLocalizations l10n, String status) {
+  // 复用现有 tab 标签作为状态名；缺失时回退到 RPC 原文。
+  switch (status) {
+    case 'active':
+      return l10n.tabActive;
+    case 'waiting':
+      return l10n.tabWaiting;
+    case 'paused':
+      return l10n.statusPaused;
+    case 'complete':
+      return l10n.statusComplete;
+    case 'error':
+      return l10n.statusError;
+    case 'removed':
+      return l10n.statusRemoved;
+    default:
+      return status.isEmpty ? '—' : status;
+  }
+}
+
+/// 任务行左侧的彩色圆形徽章：状态色 + 状态图标。
+class _TaskStatusBadge extends StatelessWidget {
+  const _TaskStatusBadge({required this.palette});
+  final _StatusPalette palette;
+
+  IconData _icon() {
+    // palette 不直接携带 status——靠 fg 与 a.xxx 比对略繁琐；这里改为始终
+    // 用 download icon 作占位。本应用任务都是下载，分类用色已经传达状态。
+    return Icons.download_rounded;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: palette.surface,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Icon(_icon(), color: palette.fg, size: 20),
+    );
+  }
+}
+
+/// 状态文字徽章（active / paused / complete...）。
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.palette, required this.label});
+  final _StatusPalette palette;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: palette.surface.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: palette.fg,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+/// 速度 / ETA / GID 等元数据徽章：图标 + 文字，无底色，节省空间。
+class _MetaBadge extends StatelessWidget {
+  const _MetaBadge({
+    required this.icon,
+    required this.color,
+    required this.text,
+    this.monospace = false,
+  });
+  final IconData icon;
+  final Color color;
+  final String text;
+  final bool monospace;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 12, color: color),
+        const SizedBox(width: 3),
+        Text(
+          text,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: color,
+            fontFeatures: monospace
+                ? const [FontFeature.tabularFigures()]
+                : null,
+            fontFamily: monospace ? 'monospace' : null,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 任务列表顶部的全局速率 / 计数横栏。
+///
+/// 视觉重设计：
+/// - 左右两个 `_SpeedTile`（下载 / 上传），分别带方向图标 + 大号数字 + 单位。
+/// - 中间一道纵向分隔，让两列对比清晰。
+/// - 紧凑模式（窄屏）下隐藏右侧任务计数 chip 与 aria2 版本号，把空间让给速率。
+/// - 整条栏目可点击 → 把扩展统计文本复制到剪贴板（继承旧行为）。
+/// - 底部一行是 WS / 轮询状态指示，去掉了原来左 16 padding 后的孤立小字。
+class _GlobalStatsBar extends StatelessWidget {
+  const _GlobalStatsBar({
+    required this.stats,
+    required this.version,
+    required this.compact,
+    required this.wsOn,
+    required this.onCopy,
+  });
+
+  final GlobalStatView stats;
+  final Map<String, dynamic>? version;
+  final bool compact;
+  final bool wsOn;
+  final VoidCallback onCopy;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final scheme = Theme.of(context).colorScheme;
+    final accents = Aria2downColors.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      child: Card(
+        color: scheme.surfaceContainerHigh,
+        child: InkWell(
+          onTap: onCopy,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                IntrinsicHeight(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _SpeedTile(
+                          icon: Icons.arrow_downward_rounded,
+                          accent: accents.downloadAccent,
+                          label: l10n.tabActive,
+                          value: stats.downFmt,
+                          compact: compact,
+                        ),
+                      ),
+                      VerticalDivider(
+                        width: 1,
+                        thickness: 1,
+                        color: scheme.outlineVariant.withValues(alpha: 0.6),
+                      ),
+                      Expanded(
+                        child: _SpeedTile(
+                          icon: Icons.arrow_upward_rounded,
+                          accent: accents.uploadAccent,
+                          label: l10n.tabHistory,
+                          value: stats.upFmt,
+                          compact: compact,
+                          rightAligned: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    // chips 区：可横向滚动，避免在极窄屏被挤出。
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            _StatsChip(
+                              icon: Icons.play_circle_outline,
+                              label: l10n.tabActive,
+                              count: stats.numActive,
+                              color: accents.statusActive,
+                              surface: accents.statusActiveSurface,
+                            ),
+                            const SizedBox(width: 6),
+                            _StatsChip(
+                              icon: Icons.hourglass_top_outlined,
+                              label: l10n.tabWaiting,
+                              count: stats.numWaiting,
+                              color: scheme.tertiary,
+                              surface: scheme.tertiaryContainer,
+                            ),
+                            const SizedBox(width: 6),
+                            _StatsChip(
+                              icon: Icons.check_circle_outline,
+                              label: l10n.tabStopped,
+                              count: stats.numStopped,
+                              color: accents.statusComplete,
+                              surface: accents.statusCompleteSurface,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _ConnectionPill(wsOn: wsOn),
+                    if (!compact && version != null) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        l10n.aria2Version('${version!['version'] ?? ''}'),
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 速率 tile：图标 + 数字 + 单位。
+class _SpeedTile extends StatelessWidget {
+  const _SpeedTile({
+    required this.icon,
+    required this.accent,
+    required this.label,
+    required this.value,
+    required this.compact,
+    this.rightAligned = false,
+  });
+
+  final IconData icon;
+  final Color accent;
+  final String label;
+  final String value;
+  final bool compact;
+  final bool rightAligned;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // 解析 formatSpeed 输出（例如 "1.5 MB/s"）：把数字部分加大、单位变小。
+    final m = RegExp(r'^(.+?)\s*([A-Za-z/]+)$').firstMatch(value);
+    final number = m?.group(1) ?? value;
+    final unit = m?.group(2) ?? '';
+    final children = <Widget>[
+      Icon(icon, color: accent, size: compact ? 22 : 24),
+      const SizedBox(width: 8),
+      Column(
+        crossAxisAlignment: rightAligned
+            ? CrossAxisAlignment.start
+            : CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 2),
+          RichText(
+            text: TextSpan(
+              children: [
+                TextSpan(
+                  text: number,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: accent,
+                    height: 1.0,
+                  ),
+                ),
+                if (unit.isNotEmpty)
+                  TextSpan(
+                    text: ' $unit',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: accent.withValues(alpha: 0.8),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ];
+    return Padding(
+      padding: rightAligned
+          ? const EdgeInsets.only(left: 16)
+          : const EdgeInsets.only(right: 16),
+      child: Row(
+        mainAxisAlignment: rightAligned
+            ? MainAxisAlignment.start
+            : MainAxisAlignment.start,
+        children: children,
+      ),
+    );
+  }
+}
+
+/// 任务计数 chip：图标 + 标签 + 数字。
+class _StatsChip extends StatelessWidget {
+  const _StatsChip({
+    required this.icon,
+    required this.label,
+    required this.count,
+    required this.color,
+    required this.surface,
+  });
+
+  final IconData icon;
+  final String label;
+  final int count;
+  final Color color;
+  final Color surface;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: surface.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '$count',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// WebSocket 状态指示：绿点 + "已连接" 或 灰点 + "轮询"。
+class _ConnectionPill extends StatelessWidget {
+  const _ConnectionPill({required this.wsOn});
+
+  final bool wsOn;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final scheme = Theme.of(context).colorScheme;
+    final accents = Aria2downColors.of(context);
+    final on = wsOn;
+    final color = on ? accents.statusComplete : scheme.onSurfaceVariant;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          on ? l10n.wsConnected : l10n.wsPolling,
+          style: Theme.of(
+            context,
+          ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+      ],
     );
   }
 }

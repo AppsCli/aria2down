@@ -9,13 +9,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../aria2/client/aria2_exceptions.dart';
 import '../../core/app_deep_link.dart';
 import '../../core/reveal_path.dart';
+import '../../core/rpc_error_message.dart';
 import '../../core/task_detail_poll.dart';
 import '../../core/task_list_keys.dart';
 import '../../core/task_share.dart';
+import '../../data/task_history_repository.dart';
 import '../../providers/aria2_daemon_provider.dart';
 import 'task_detail_actions.dart';
+import 'task_history_tab.dart';
 
 /// aria2 `getOption` 中与 BT 相关的常用键（任务级生效值）。
 const _kBtOptionDisplayKeys = ['enable-dht', 'enable-dht6', 'bt-enable-lpd'];
@@ -43,6 +47,10 @@ class _TaskDetailPageState extends ConsumerState<TaskDetailPage>
   bool _loadInFlight = false;
   bool _btOptionsLoaded = false;
   int _peersTickCounter = 0;
+  // 当 aria2 找不到该任务（被 purge / session 重置）时从 TaskHistoryRepository
+  // 读取的本地快照——`true` 时 TabBarView 上方挂一条「正在显示历史快照」横
+  // 幅，并停掉轮询计时器（继续 tellStatus 也只会再次失败）。
+  bool _fromHistorySnapshot = false;
 
   @override
   void initState() {
@@ -85,7 +93,12 @@ class _TaskDetailPageState extends ConsumerState<TaskDetailPage>
             if (shouldFetchPeers) {
               try {
                 peers = await d.client.getPeers(widget.gid);
-              } catch (_) {
+              } catch (e, st) {
+                // 单条 getPeers 失败不应阻塞整页；UI 仍能展示其余字段，
+                // 但日志要明确：之前实现 catch(_){} 会把 -1004 / 非 BT
+                // 任务的合法报错也吞掉，排查 peers 列表为空时无从下手。
+                debugPrint('[task_detail] getPeers(${widget.gid}) failed: $e');
+                debugPrintStack(stackTrace: st, label: 'task_detail getPeers');
                 peers = [];
               }
             }
@@ -94,7 +107,9 @@ class _TaskDetailPageState extends ConsumerState<TaskDetailPage>
               try {
                 btOpts = await d.client.getOption(widget.gid);
                 _btOptionsLoaded = true;
-              } catch (_) {
+              } catch (e, st) {
+                debugPrint('[task_detail] getOption(${widget.gid}) failed: $e');
+                debugPrintStack(stackTrace: st, label: 'task_detail getOption');
                 // 保留上一轮选项，避免界面闪烁
               }
             }
@@ -115,12 +130,49 @@ class _TaskDetailPageState extends ConsumerState<TaskDetailPage>
             _error = null;
             _peersTried = true;
           });
-        } catch (e) {
+        } catch (e, st) {
+          // 任务已不在 session：典型场景是「从历史 Tab 点进来 / 库引擎重启
+          // 清空了 downloadResults_」，aria2/FFI 返回 -1006 (ERR_NOT_FOUND)
+          // 或 'No such download for GID'。这种情况下尝试从本地历史读取快
+          // 照展示，让三个 Tab 仍可用；其他错误（鉴权 / 网络）保留原 banner
+          // 走 retry 路径。
+          //
+          // 关于日志：Aria2LoggingTransport 已对 -1006 / "no such download"
+          // 打了一条 `soft failure` 简讯，这里**不再**重复 `debugPrint` +
+          // `debugPrintStack`，避免把同一次预期降级在终端喷 6~8 行栈把真正
+          // 需要排查的异常淹没；只在判定为「真正失败」（非 not-found）时打
+          // 完整栈，并在 fallback 命中后补一行说明。
+          final notFound = _isTaskNotFoundError(e);
+          if (!notFound) {
+            debugPrint('[task_detail] tellStatus(${widget.gid}) failed: $e');
+            debugPrintStack(stackTrace: st, label: 'task_detail tellStatus');
+          }
+          if (_status == null && notFound) {
+            final snapshot = await _loadHistorySnapshot(widget.gid);
+            if (snapshot != null && mounted) {
+              debugPrint(
+                '[task_detail] gid=${widget.gid} not in session; '
+                'showing local history snapshot.',
+              );
+              _timer?.cancel();
+              setState(() {
+                _status = snapshot;
+                _error = null;
+                _peers = const [];
+                _btOptions = null;
+                _peersTried = true;
+                _fromHistorySnapshot = true;
+              });
+              return;
+            }
+          }
           if (mounted) {
+            // 关键差异：不再清空 `_status`。如果之前加载过成功的数据，
+            // 让用户继续看老数据 + 顶部错误 banner 提示，比"三个 Tab
+            // 全消失换一个全屏 'Load failed'"友好得多。只有从未加载过
+            // （`_status == null`）时，build 才会落到全屏错误页。
             setState(() {
               _error = '$e';
-              _status = null;
-              _btOptions = null;
             });
           }
         }
@@ -128,6 +180,34 @@ class _TaskDetailPageState extends ConsumerState<TaskDetailPage>
         _loadInFlight = false;
       }
     });
+  }
+
+  /// 是否属于"任务不在 aria2 session 中"语义的错误。
+  ///
+  /// - FFI 层：`Aria2RpcException` code == -1006 (`ARIA2_FFI_ERR_NOT_FOUND`)。
+  /// - aria2 自带 RPC：消息含 `No such download for GID`（远程模式 / 子进程模式）。
+  static bool _isTaskNotFoundError(Object e) {
+    if (e is Aria2RpcException) {
+      if (e.code == -1006) return true;
+      final lower = e.message.toLowerCase();
+      if (lower.contains('no such download') || lower.contains('not found')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// 从 [TaskHistoryRepository] 读 gid 对应的本地快照并合成 tellStatus 形状。
+  /// 找不到 / 读取异常一律返回 null（详情页会回退到 banner 重试路径）。
+  Future<Map<String, dynamic>?> _loadHistorySnapshot(String gid) async {
+    try {
+      final entry = await TaskHistoryRepository.findByGid(gid);
+      return entry?.toDetailShape();
+    } catch (e, st) {
+      debugPrint('[task_detail] history fallback load failed: $e');
+      debugPrintStack(stackTrace: st, label: 'task_detail history-fallback');
+      return null;
+    }
   }
 
   @override
@@ -214,42 +294,244 @@ class _TaskDetailPageState extends ConsumerState<TaskDetailPage>
           ],
         ),
       ),
-      body: _error != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  l10n.taskDetailLoadFailed(_error!),
-                  textAlign: TextAlign.center,
-                ),
-              ),
+      body: st == null
+          ? _DetailLoadingOrError(
+              error: _error,
+              l10n: l10n,
+              onRetry: _scheduleLoad,
             )
-          : st == null
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabs,
+          : Column(
               children: [
-                _OverviewTab(l10n: l10n, status: st),
-                _FilesTab(
-                  gid: widget.gid,
-                  l10n: l10n,
-                  status: st,
-                  fmtBytes: formatBytes,
-                  onApplied: _scheduleLoad,
-                ),
-                _TorrentTab(
-                  l10n: l10n,
-                  status: st,
-                  peers: _peers,
-                  peersTried: _peersTried,
-                  btOptions: _btOptions,
-                  fmtSpeed: formatSpeed,
+                // 软失败 banner：之前的实现把 `_status` 清空，三个 Tab 全
+                // 不可见；现在改成上一轮成功的数据继续显示，banner 提示
+                // 用户最新一次刷新失败 + 一键重试。日志已在 catch 里打到
+                // debugPrint，用户从终端能看到完整异常。
+                if (_error != null)
+                  _DetailErrorBanner(
+                    error: _error!,
+                    l10n: l10n,
+                    onRetry: _scheduleLoad,
+                  ),
+                if (_fromHistorySnapshot)
+                  _HistorySnapshotBanner(l10n: l10n, gid: widget.gid),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabs,
+                    children: [
+                      _OverviewTab(l10n: l10n, status: st),
+                      _FilesTab(
+                        gid: widget.gid,
+                        l10n: l10n,
+                        status: st,
+                        fmtBytes: formatBytes,
+                        onApplied: _scheduleLoad,
+                      ),
+                      _TorrentTab(
+                        l10n: l10n,
+                        status: st,
+                        peers: _peers,
+                        peersTried: _peersTried,
+                        btOptions: _btOptions,
+                        fmtSpeed: formatSpeed,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
-      bottomNavigationBar: st != null
-          ? TaskDetailActionBar(status: st, onChanged: _scheduleLoad)
+      // 历史快照模式下不展示操作栏：aria2 已经不持有该任务，pause/unpause/
+      // delete RPC 全都会以 -1006 失败；唯一仍然有效的「重试」已经放在历史
+      // Tab 与上方 banner，不必在底部重复一份。
+      bottomNavigationBar: (st != null && !_fromHistorySnapshot)
+          ? TaskDetailActionBar(
+              gid: widget.gid,
+              status: st,
+              onChanged: _scheduleLoad,
+            )
           : null,
+    );
+  }
+}
+
+/// 仅在「首次加载就失败」(`_status == null`) 时显示的全屏分支：未失败时圆环，
+/// 失败时卡片化错误信息 + 重试按钮。已成功加载过的情况由 [_DetailErrorBanner]
+/// 覆盖，TabBarView 始终保留可用。
+class _DetailLoadingOrError extends StatelessWidget {
+  const _DetailLoadingOrError({
+    required this.error,
+    required this.l10n,
+    required this.onRetry,
+  });
+
+  final String? error;
+  final AppLocalizations l10n;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    if (error == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: scheme.errorContainer.withValues(alpha: 0.5),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.broken_image_outlined,
+                  size: 36,
+                  color: scheme.error,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                l10n.taskDetailLoadFailed(''),
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                color: scheme.errorContainer.withValues(alpha: 0.3),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: SelectableText(
+                    formatRpcError(l10n, Exception(error!)),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onErrorContainer,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: onRetry,
+                icon: const Icon(Icons.refresh),
+                label: Text(l10n.retry),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 历史快照模式 banner：aria2 已不持有该任务，但本地历史里有快照。展示一条
+/// 明确说明 + 「从历史中删除」/「返回任务列表」两个按钮——让用户知道当前是
+/// 只读视图，并能直接擦掉这条「看上去删不掉」的历史。
+class _HistorySnapshotBanner extends ConsumerWidget {
+  const _HistorySnapshotBanner({required this.l10n, required this.gid});
+
+  final AppLocalizations l10n;
+  final String gid;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Card(
+        color: scheme.tertiaryContainer.withValues(alpha: 0.5),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+          child: Row(
+            children: [
+              Icon(Icons.history, color: scheme.tertiary, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  l10n.taskDetailHistorySnapshotBanner,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onTertiaryContainer,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: l10n.historyDeleteTooltip,
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () async {
+                  final removed = await confirmDeleteHistoryEntry(
+                    context,
+                    ref,
+                    gid,
+                  );
+                  if (removed && context.mounted) {
+                    // 历史里没了，详情页继续停留没有意义——把当前路由弹掉
+                    // 回到任务列表 / 历史 Tab，刷新由 invalidate 处理。
+                    Navigator.of(context).maybePop();
+                  }
+                },
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                child: Text(l10n.taskDetailBackToList),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 已有缓存数据但本轮刷新失败时显示的顶部错误条。比之前那套「直接整页错误」
+/// 友好得多：用户仍能浏览旧数据 + 一键重试；错误详情在终端 `debugPrint` 里。
+class _DetailErrorBanner extends StatelessWidget {
+  const _DetailErrorBanner({
+    required this.error,
+    required this.l10n,
+    required this.onRetry,
+  });
+
+  final String error;
+  final AppLocalizations l10n;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Card(
+        color: scheme.errorContainer.withValues(alpha: 0.45),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+          child: Row(
+            children: [
+              Icon(Icons.error_outline, color: scheme.error, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  formatRpcError(l10n, Exception(error)),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onErrorContainer,
+                  ),
+                ),
+              ),
+              TextButton(onPressed: onRetry, child: Text(l10n.retry)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -338,9 +620,12 @@ class _OverviewTab extends StatelessWidget {
       final s = bf.length > 128 ? '${bf.substring(0, 128)}…' : bf;
       rows.add((l10n.taskDetailFieldBitfield, s, true));
     }
-    final bt = status['bittorrent'];
-    if (bt is Map && bt['infoHash'] != null) {
-      rows.add((l10n.taskDetailFieldInfoHash, '${bt['infoHash']}', true));
+    // aria2 把 infoHash 放在 tellStatus 响应 top-level，不在 bittorrent 子结构里。
+    // 注意：magnet 链刚加入时，aria2 已经能读出 infoHash 但 `bittorrent`（来自
+    // .torrent metadata）可能还是空——这两个字段彼此独立，单独判 infoHash 即可。
+    final infoHash = status['infoHash'];
+    if (infoHash is String && infoHash.isNotEmpty) {
+      rows.add((l10n.taskDetailFieldInfoHash, infoHash, true));
     }
 
     return ListView(
@@ -471,7 +756,11 @@ class _FilesTabState extends ConsumerState<_FilesTab> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(l10n.taskDetailFileSelectionSaved)),
       );
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint(
+        '[task_detail] changeOption(${widget.gid}, select-file=${indices.join(',')}) failed: $e',
+      );
+      debugPrintStack(stackTrace: st, label: 'task_detail changeOption');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

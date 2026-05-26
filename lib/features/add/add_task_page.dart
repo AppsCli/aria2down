@@ -90,7 +90,13 @@ class _AddTaskPageState extends ConsumerState<AddTaskPage> {
               opts['select-file'] = (selected.toList()..sort()).join(',');
             }
           }
-        } catch (_) {}
+        } catch (e, st) {
+          // 解析 .torrent 元信息失败：不影响添加任务本身（会让 aria2 在
+          // metadata 阶段自行处理），但需要在终端留痕方便排查"为什么没弹
+          // 文件选择对话框"。
+          debugPrint('[add_task] parse torrent metainfo failed: $e');
+          debugPrintStack(stackTrace: st, label: 'add_task parse-torrent');
+        }
         await d.client.addTorrent(b64, options: opts.isEmpty ? null : opts);
       } else {
         await d.client.addMetalink(b64, options: opts.isEmpty ? null : opts);
@@ -100,7 +106,9 @@ class _AddTaskPageState extends ConsumerState<AddTaskPage> {
           context,
         ).showSnackBar(SnackBar(content: Text(l10n.snackAdded)));
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[add_task] add torrent/metalink failed: $e');
+      debugPrintStack(stackTrace: st, label: 'add_task add-file');
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -161,15 +169,20 @@ class _AddTaskPageState extends ConsumerState<AddTaskPage> {
       );
       if (result.added == 0) {
         if (mounted) {
+          // 全失败时显示真正的 RPC 错误，全重复时显示去重提示。
+          final msg = result.errors.isNotEmpty
+              ? formatRpcError(l10n, result.errors.first.error)
+              : l10n.snackAllDuplicates;
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(SnackBar(content: Text(l10n.snackAllDuplicates)));
+          ).showSnackBar(SnackBar(content: Text(msg)));
         }
         return;
       }
       if (mounted) {
-        final msg = result.skipped > 0
-            ? l10n.snackAddedWithSkipped(result.added, result.skipped)
+        final skippedTotal = result.skipped + result.errors.length;
+        final msg = skippedTotal > 0
+            ? l10n.snackAddedWithSkipped(result.added, skippedTotal)
             : (result.added == 1
                   ? l10n.snackAdded
                   : l10n.snackAddedCount(result.added));
@@ -177,7 +190,9 @@ class _AddTaskPageState extends ConsumerState<AddTaskPage> {
           context,
         ).showSnackBar(SnackBar(content: Text(msg)));
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[add_task] _addUris(${uris.length}) failed: $e');
+      debugPrintStack(stackTrace: st, label: 'add_task _addUris');
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -277,7 +292,9 @@ class _AddTaskPageState extends ConsumerState<AddTaskPage> {
           context,
         ).showSnackBar(SnackBar(content: Text(l10n.snackAdded)));
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[add_task] pick-and-add torrent failed: $e');
+      debugPrintStack(stackTrace: st, label: 'add_task pickTorrent');
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -307,7 +324,9 @@ class _AddTaskPageState extends ConsumerState<AddTaskPage> {
           context,
         ).showSnackBar(SnackBar(content: Text(l10n.snackAdded)));
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[add_task] pick-and-add metalink failed: $e');
+      debugPrintStack(stackTrace: st, label: 'add_task pickMetalink');
       if (mounted) {
         ScaffoldMessenger.of(
           context,

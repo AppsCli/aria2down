@@ -1,4 +1,5 @@
 import 'package:aria2down/aria2/client/aria2_client.dart';
+import 'package:aria2down/aria2/client/aria2_exceptions.dart';
 import 'package:aria2down/aria2/client/rpc_methods.dart';
 import 'package:aria2down/aria2/client/rpc_transport.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -76,6 +77,66 @@ void main() {
     final list = await client.tellActive(keys: ['gid', 'status']);
     expect(list, isEmpty);
   });
+
+  test(
+    'Aria2Client.removeTask uses removeDownloadResult for stopped',
+    () async {
+      final client = Aria2Client(
+        transport: _FakeTransport((method, params) async {
+          expect(method, RpcMethods.removeDownloadResult);
+          expect(params, ['gid1']);
+          return null;
+        }),
+      );
+      await client.removeTask('gid1', status: 'complete');
+    },
+  );
+
+  test('Aria2Client.removeTask forceRemove then fallback', () async {
+    var calls = 0;
+    final client = Aria2Client(
+      transport: _FakeTransport((method, params) async {
+        calls++;
+        if (calls == 1) {
+          expect(method, RpcMethods.forceRemove);
+          throw const Aria2RpcException('not found', code: -1);
+        }
+        expect(method, RpcMethods.removeDownloadResult);
+        return null;
+      }),
+    );
+    await client.removeTask('gid1', status: 'active');
+    expect(calls, 2);
+  });
+
+  test(
+    'Aria2Client.removeTask 第二次失败时抛 second error（但 first error 已经走 debugPrint 留痕）',
+    () async {
+      final client = Aria2Client(
+        transport: _FakeTransport((method, params) async {
+          if (method == RpcMethods.forceRemove) {
+            throw const Aria2RpcException('first failed', code: -10);
+          }
+          if (method == RpcMethods.removeDownloadResult) {
+            throw const Aria2RpcException('second failed', code: -20);
+          }
+          fail('unexpected method $method');
+        }),
+      );
+      // 第二次的异常应原样冒泡，第一次的异常已经被 debugPrint 写入测试输出。
+      await expectLater(
+        client.removeTask('gid1', status: 'active'),
+        throwsA(
+          predicate(
+            (e) =>
+                e is Aria2RpcException &&
+                e.code == -20 &&
+                e.message.contains('second'),
+          ),
+        ),
+      );
+    },
+  );
 
   test('Aria2Client.removeDownloadResult', () async {
     final client = Aria2Client(

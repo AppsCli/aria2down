@@ -28,11 +28,11 @@ class TaskHistoryEntry {
   final String? infoHash;
 
   factory TaskHistoryEntry.fromTellStatus(Map<String, dynamic> st) {
-    final bt = st['bittorrent'];
-    String? hash;
-    if (bt is Map && bt['infoHash'] != null) {
-      hash = '${bt['infoHash']}';
-    }
+    // aria2 tellStatus 把 infoHash 放在响应根而不是 bittorrent 子结构里。
+    // 不要求 `bittorrent` 子结构同时存在——magnet 任务在拿到 metadata 前就已经
+    // 暴露 infoHash，提前持久化也方便后续去重。
+    final ih = st['infoHash'];
+    final hash = (ih is String && ih.isNotEmpty) ? ih : null;
     return TaskHistoryEntry(
       gid: '${st['gid'] ?? ''}',
       name: pickTaskName(st),
@@ -70,8 +70,12 @@ class TaskHistoryEntry {
       gid: '${json['gid'] ?? ''}',
       name: '${json['name'] ?? 'Task'}',
       status: '${json['status'] ?? 'unknown'}',
-      totalLength: json['totalLength'] as int? ?? 0,
-      completedLength: json['completedLength'] as int? ?? 0,
+      // `totalLength`/`completedLength` 在 aria2 RPC 里以字符串十进制传输，
+      // 历史文件可能由旧版本（int）/手动编辑（字符串/带空格）/RPC 直接转储
+      // (字符串) 写入。与 [fromTellStatus] 保持一致地走 `int.tryParse`，避
+      // 免 `as int?` 在字符串输入时抛 TypeError 让整条历史无法反序列化。
+      totalLength: _parseInt(json['totalLength']),
+      completedLength: _parseInt(json['completedLength']),
       recordedAt:
           DateTime.tryParse('${json['recordedAt']}')?.toUtc() ??
           DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
@@ -85,6 +89,13 @@ class TaskHistoryEntry {
           const [],
       infoHash: json['infoHash'] as String?,
     );
+  }
+
+  static int _parseInt(Object? v) {
+    if (v == null) return 0;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return int.tryParse('$v'.trim()) ?? 0;
   }
 
   Map<String, dynamic> toRetryTaskShape() => {
@@ -102,5 +113,42 @@ class TaskHistoryEntry {
         },
     ],
     if (infoHash != null) 'bittorrent': {'infoHash': infoHash},
+  };
+
+  /// 合成一个**接近 `tellStatus` 响应**的 Map，供任务详情页在 aria2 已经
+  /// 找不到该任务（例如被 purge、库引擎重启清空 session）时作为只读快照
+  /// 兜底——比单一的 "加载失败" 全屏页友好得多。
+  ///
+  /// 字段限制：history 不存「每文件进度 / connections / downloadSpeed」等
+  /// 动态数据，详情页 Overview/Torrent Tab 仅展示已持久化的部分；动态字段
+  /// 会显示为 0 / 空，与 aria2 把任务从 `downloadResults_` 清空后再查询的
+  /// 表现一致。
+  Map<String, dynamic> toDetailShape() => {
+    'gid': gid,
+    'status': status,
+    'totalLength': '$totalLength',
+    'completedLength': '$completedLength',
+    if (dir != null) 'dir': dir,
+    if (errorMessage != null) 'errorMessage': errorMessage,
+    'files': [
+      {
+        'index': '1',
+        // 用 history 持久化的 `name` 充当 path——`pickTaskName` 没有 uri
+        // 时退到 path 末尾，确保 AppBar 标题不会变成 "Task" 占位。
+        'path': name,
+        'length': '$totalLength',
+        'completedLength': '$completedLength',
+        'selected': 'true',
+        'uris': [
+          for (final u in uris) {'uri': u, 'status': 'used'},
+        ],
+      },
+    ],
+    if (infoHash != null) ...{
+      'infoHash': infoHash,
+      'bittorrent': {
+        if (name.isNotEmpty) 'info': {'name': name},
+      },
+    },
   };
 }

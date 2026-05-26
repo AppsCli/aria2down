@@ -117,6 +117,22 @@ class AppLocalizationsZh extends AppLocalizations {
   String get historyClearConfirm => '清空';
 
   @override
+  String get historyDeleteTooltip => '从历史中删除';
+
+  @override
+  String get historyDeleteTitle => '从历史中删除？';
+
+  @override
+  String get historyDeleteMessage =>
+      '仅从本机保存的历史记录中移除该条目，不影响 aria2 当前队列，也不会删除磁盘上的文件。';
+
+  @override
+  String get historyDeleteConfirm => '删除';
+
+  @override
+  String get historyDeleteSnack => '已从历史中删除';
+
+  @override
   String get mobilePathSheetTitle => '保存路径';
 
   @override
@@ -172,6 +188,58 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get emptyStopped => '暂无已停止任务';
+
+  @override
+  String get statusPaused => '已暂停';
+
+  @override
+  String get statusComplete => '已完成';
+
+  @override
+  String get statusError => '出错';
+
+  @override
+  String get statusRemoved => '已删除';
+
+  @override
+  String get taskDetailHistorySnapshotBanner =>
+      'aria2 已不再持有此任务，正在显示本地历史快照。实时字段（速度、Peers 等）不可用。';
+
+  @override
+  String get taskDetailBackToList => '返回任务列表';
+
+  @override
+  String get libraryCapabilitiesDegradedTitle => '库引擎运行在功能受限模式';
+
+  @override
+  String libraryCapabilitiesDegradedBody(String missing) {
+    return '当前 libaria2 构建缺失补丁：$missing。删除已完成任务可能软成功无效，等待/已停止列表会回退到 Dart 模拟逻辑。请重新跑 ./scripts/build_libaria2_<platform>.sh 刷新 prebuilt。';
+  }
+
+  @override
+  String get libraryCapabilityRemoveDownloadResult => '删除已完成任务';
+
+  @override
+  String get libraryCapabilityListReserved => '枚举等待中任务';
+
+  @override
+  String get libraryCapabilityListDownloadResults => '枚举已停止任务';
+
+  @override
+  String get libraryCapabilityDownloadHandleExt => 'BT 顶层字段（numSeeders 等）';
+
+  @override
+  String get loadMoreStopped => '加载更多';
+
+  @override
+  String loadMoreStoppedWithCount(int loaded) {
+    return '加载更多（已加载 $loaded 条）';
+  }
+
+  @override
+  String loadedAllStopped(int total) {
+    return '已加载全部已停止任务（共 $total 条）';
+  }
 
   @override
   String get hintUrls => '输入 HTTP(S) / FTP / 磁力 链接，多个可用空格或换行分隔';
@@ -591,6 +659,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String trayToolTipStats(String down, String up, int active, int waiting) {
     return 'aria2down\n↓ $down  ↑ $up\n活动 $active · 等待 $waiting';
   }
+
+  @override
+  String get trayToolTipOffline => 'aria2down\n已断开 — 点击图标重试';
 
   @override
   String get startMinimized => '启动时隐藏到托盘';

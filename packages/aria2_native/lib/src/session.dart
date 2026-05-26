@@ -57,6 +57,26 @@ class Aria2NativeSession {
     }
   }
 
+  /// 查询本构建的可选能力集合（去重的字符串集合）。
+  ///
+  /// 旧 `prebuilt/libaria2.a` + 旧 `aria2_ffi.cc` 编译产物会缺 `aria2_ffi_get_capabilities`
+  /// 符号——此时 [`Aria2NativeBindings.aria2_ffi_get_capabilities`] 返回 null，本方法
+  /// 同样返回空集合。调用方据此向用户暗示"功能受限，建议 `./scripts/build_libaria2_*.sh`
+  /// 重编 prebuilt"。
+  ///
+  /// 可能出现的元素：
+  /// - `"removeDownloadResult"`：能真正清掉 stopped 任务（否则只能软成功）。
+  /// - `"listReserved"`、`"listDownloadResults"`：能正确枚举 waiting / stopped。
+  /// - `"downloadHandleExt"`：BT 任务详情可见 errorMessage / numSeeders 等顶层字段。
+  Future<Set<String>> getCapabilities() async {
+    _ensureAlive();
+    final raw = await _worker!.send(WorkerOp.getCapabilities);
+    if (raw is! String || raw.isEmpty) return const {};
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return const {};
+    return decoded.map((e) => '$e').where((s) => s.isNotEmpty).toSet();
+  }
+
   /// Open a fresh session in a dedicated worker isolate. Set [options] to
   /// seed aria2 with command-line-style options (e.g. `dir`,
   /// `max-concurrent-downloads`).
@@ -341,12 +361,28 @@ final class Aria2NativeEvent {
       }
     }
     if (type == null) return null;
-    return Aria2NativeEvent(
-      type: type,
-      gidHex: gid.toRadixString(16).padLeft(16, '0'),
-    );
+    return Aria2NativeEvent(type: type, gidHex: formatGidAsUnsignedHex16(gid));
   }
 
   final Aria2NativeEventType type;
   final String gidHex;
+}
+
+/// 按 `aria2::gidToHex` 的语义把 64 位 GID 序列化为 16 位小写无符号十六进制。
+///
+/// libaria2 的 `A2Gid` 是 `uint64_t`，但 Dart `int` 是 64 位有符号整数：高位
+/// 为 1 的 GID 会以负数形式抵达 Dart（例如 `0xDE32415CA11488F0` 在
+/// SendPort 传递后变成 `-2436189094428901648`）。若直接 `toRadixString(16)`
+/// 会得到 `-21cdbea35eeb7710` 这种带负号的串，喂回 `aria2_ffi_tell_status`
+/// 后 `hexToGid` 解析失败、`getDownloadHandle` 找不到对应任务，整条链路报
+/// `ARIA2_FFI_ERR_NOT_FOUND (-1006)`。
+///
+/// 这里用无符号右移 + 低 32 位掩码拆成两段无符号 32 位整数再拼回 16 位 hex，
+/// 与 aria2 在 RPC 中给客户端的 gid 形态完全一致，确保所有依赖事件 gid 的
+/// 调用（任务历史落库、详情页轮询、UI 通知聚合）都能稳定回查到任务。
+String formatGidAsUnsignedHex16(int gid) {
+  final hi = (gid >>> 32) & 0xFFFFFFFF;
+  final lo = gid & 0xFFFFFFFF;
+  return '${hi.toRadixString(16).padLeft(8, '0')}'
+      '${lo.toRadixString(16).padLeft(8, '0')}';
 }

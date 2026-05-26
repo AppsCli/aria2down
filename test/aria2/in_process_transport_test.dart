@@ -44,6 +44,74 @@ void main() {
       throwsA(predicate((e) => e is Aria2RpcException && e.code == -32602)),
     );
   });
+
+  test('pauseAll 优先调用 native session.pauseAll（支持时）', () async {
+    final fake = _RecordingSession(
+      nativePauseAllSupported: true,
+      active: [
+        {'gid': 'a1', 'status': 'active'},
+      ],
+    );
+    final t = Aria2InProcessTransport(fake);
+    final r = await t.call(RpcMethods.pauseAll, const []);
+    expect(r, 'OK');
+    // native 路径走通，不应再逐条 pause。
+    expect(fake.nativePauseAllCalls, 1);
+    expect(fake.nativePauseAllForce, [false]);
+    expect(fake.pauseCalls, isEmpty);
+  });
+
+  test('forcePauseAll 走 native 时把 force=true 透传', () async {
+    final fake = _RecordingSession(nativePauseAllSupported: true);
+    final t = Aria2InProcessTransport(fake);
+    final r = await t.call(RpcMethods.forcePauseAll, const []);
+    expect(r, 'OK');
+    expect(fake.nativePauseAllCalls, 1);
+    expect(fake.nativePauseAllForce, [true]);
+  });
+
+  test('pauseAll 在 native 不支持时回退枚举 active + waiting 逐条 pause', () async {
+    final fake = _RecordingSession(
+      nativePauseAllSupported: false,
+      active: [
+        {'gid': 'a1', 'status': 'active'},
+      ],
+      waiting: [
+        {'gid': 'w1', 'status': 'waiting'},
+        {'gid': 'w2', 'status': 'paused'},
+      ],
+    );
+    final t = Aria2InProcessTransport(fake);
+    final r = await t.call(RpcMethods.pauseAll, const []);
+    expect(r, 'OK');
+    // 旧版 prebuilt 兼容：枚举两个列表后逐条 pause。
+    expect(fake.pauseCalls, ['a1', 'w1', 'w2']);
+    expect(fake.pauseForceFlags, [false, false, false]);
+  });
+
+  test('unpauseAll 优先调用 native session.unpauseAll（支持时）', () async {
+    final fake = _RecordingSession(nativePauseAllSupported: true);
+    final t = Aria2InProcessTransport(fake);
+    final r = await t.call(RpcMethods.unpauseAll, const []);
+    expect(r, 'OK');
+    expect(fake.nativeUnpauseAllCalls, 1);
+    expect(fake.unpauseCalls, isEmpty);
+  });
+
+  test('unpauseAll 在 native 不支持时只对 paused 调 unpause，不动 waiting', () async {
+    final fake = _RecordingSession(
+      nativePauseAllSupported: false,
+      waiting: [
+        {'gid': 'p1', 'status': 'paused'},
+        {'gid': 'w1', 'status': 'waiting'},
+        {'gid': 'p2', 'status': 'paused'},
+      ],
+    );
+    final t = Aria2InProcessTransport(fake);
+    final r = await t.call(RpcMethods.unpauseAll, const []);
+    expect(r, 'OK');
+    expect(fake.unpauseCalls, ['p1', 'p2']);
+  });
 }
 
 /// 仅满足类型，不能被实际调用（一旦 transport 真去访问 session 方法会抛
@@ -138,6 +206,73 @@ class _FakeSession implements Aria2NativeSession {
   Future<Map<String, dynamic>> getOption(String gid) async => const {};
   @override
   Future<Map<String, dynamic>> getVersion() async => const {'version': 'fake'};
+}
+
+/// 录像 fake：可配置 `nativePauseAllSupported`——为 true 时 `pauseAll`/
+/// `unpauseAll` 成功并被计数；为 false 时抛 `Aria2NativeCallException`，
+/// 模拟旧 prebuilt 缺少 `aria2_ffi_pause_all` / `aria2_ffi_unpause_all` 时
+/// 的 fallback 行为。同时记录所有逐条 pause/unpause 调用顺序。
+class _RecordingSession extends _FakeSession {
+  _RecordingSession({
+    this.nativePauseAllSupported = true,
+    this.active = const [],
+    this.waiting = const [],
+  });
+
+  final bool nativePauseAllSupported;
+  final List<Map<String, dynamic>> active;
+  final List<Map<String, dynamic>> waiting;
+  final pauseCalls = <String>[];
+  final pauseForceFlags = <bool>[];
+  final unpauseCalls = <String>[];
+  int nativePauseAllCalls = 0;
+  int nativeUnpauseAllCalls = 0;
+  final nativePauseAllForce = <bool>[];
+
+  @override
+  Future<List<Map<String, dynamic>>> tellActive({List<String>? keys}) async =>
+      active;
+
+  @override
+  Future<List<Map<String, dynamic>>> tellWaiting({
+    int offset = 0,
+    int num = 1000,
+    List<String>? keys,
+  }) async => waiting;
+
+  @override
+  Future<void> pause(String gid, {bool force = false}) async {
+    pauseCalls.add(gid);
+    pauseForceFlags.add(force);
+  }
+
+  @override
+  Future<void> pauseAll({bool force = false}) async {
+    if (!nativePauseAllSupported) {
+      throw const Aria2NativeCallException(
+        'aria2_ffi_pause_all not supported in this build',
+        code: -1004,
+      );
+    }
+    nativePauseAllCalls++;
+    nativePauseAllForce.add(force);
+  }
+
+  @override
+  Future<void> unpause(String gid) async {
+    unpauseCalls.add(gid);
+  }
+
+  @override
+  Future<void> unpauseAll() async {
+    if (!nativePauseAllSupported) {
+      throw const Aria2NativeCallException(
+        'aria2_ffi_unpause_all not supported in this build',
+        code: -1004,
+      );
+    }
+    nativeUnpauseAllCalls++;
+  }
 }
 
 // Avoid unused-import lint when fake doesn't actually reach FFI.

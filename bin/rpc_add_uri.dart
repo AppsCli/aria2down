@@ -19,8 +19,20 @@ Future<void> main(List<String> args) async {
   }
 
   try {
-    final gid = await addUrisViaStoredCredentials(uris);
-    stdout.writeln(gid);
+    final gids = await addUrisViaStoredCredentials(uris);
+    for (final g in gids) {
+      stdout.writeln(g);
+    }
+  } on PartialAddUrisException catch (e) {
+    // 部分成功：stdout 输出成功的 gid，stderr 列出失败明细并以 1 退出，
+    // 方便调用方按行解析两路输出。
+    for (final g in e.addedGids) {
+      stdout.writeln(g);
+    }
+    for (final f in e.errors) {
+      stderr.writeln('FAILED ${f.$1}: ${f.$2}');
+    }
+    exit(1);
   } catch (e) {
     stderr.writeln('$e');
     exit(1);

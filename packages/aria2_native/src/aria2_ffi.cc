@@ -32,6 +32,14 @@
 
 #ifdef ARIA2_FFI_WITH_LIBARIA2
 #include <aria2/aria2.h>
+
+/* aria2down patches libaria2 to expose removeDownloadResult / purgeDownloadResult
+ * as public C++ API (see third_party/aria2/src/aria2api.cc). The patched
+ * <aria2/aria2.h> defines ARIA2DOWN_HAS_REMOVE_DOWNLOAD_RESULT. Older prebuilt
+ * artifacts predate the patch — in that case we keep building / running but
+ * fall back to a soft no-op for stopped-task removal. Re-run
+ * scripts/build_libaria2_<platform>.sh to refresh both the prebuilt header
+ * and libaria2.a, then full removal behavior kicks in. */
 #endif
 
 namespace {
@@ -45,6 +53,23 @@ char *dup_cstr(const std::string &s) {
 }
 
 #ifdef ARIA2_FFI_WITH_LIBARIA2
+
+/* libaria2 returns BT info hash as 20 raw bytes (binary SHA-1).
+ * aria2's own JSON-RPC server hex-encodes it via util::toHex before exposing
+ * it (see RpcMethodImpl.cc::gatherProgressBitTorrent). Emitting raw bytes
+ * here would produce invalid UTF-8 inside the JSON payload and crash the
+ * Dart side's strict Utf8Decoder when reading the result string. */
+std::string to_hex_lower(const std::string &bytes) {
+  static const char kHex[] = "0123456789abcdef";
+  std::string out;
+  out.resize(bytes.size() * 2);
+  for (size_t i = 0; i < bytes.size(); ++i) {
+    const unsigned char b = static_cast<unsigned char>(bytes[i]);
+    out[2 * i] = kHex[(b >> 4) & 0xF];
+    out[2 * i + 1] = kHex[b & 0xF];
+  }
+  return out;
+}
 
 /* ----------------------------------------------------------------------
  * Minimal JSON utilities: we keep them local to avoid pulling a heavy
@@ -334,16 +359,27 @@ bool gid_from_text(const char *text, aria2::A2Gid &out) {
 
 std::string gid_to_text(aria2::A2Gid gid) { return aria2::gidToHex(gid); }
 
-void status_to_writer(JsonWriter &w, aria2::Session *s, aria2::A2Gid gid,
+/* Returns false when the requested gid has no group AND no download result,
+ * matching what aria2's JSON-RPC server reports as "No such download for
+ * GID#…". Callers translate that to ARIA2_FFI_ERR_NOT_FOUND so the Dart side
+ * sees a real error instead of an empty object — otherwise the UI happily
+ * renders on a phantom status, then sends garbage gids back to FFI. */
+bool status_to_writer(JsonWriter &w, aria2::Session *s, aria2::A2Gid gid,
                       const std::vector<std::string> *keys) {
   auto include = [&](const char *name) {
     if (!keys) return true;
     for (const auto &k : *keys) if (k == name) return true;
     return false;
   };
+  // Whether keys filter (if any) explicitly mentions this field. Use this
+  // when a field is conceptually optional in aria2's tellStatus payload
+  // (errorMessage / numSeeders / seeder / verifiedLength / verifyIntegrityPending):
+  // mirror aria2 RPC's behavior of always emitting when present, but only
+  // gather the data if the caller explicitly asked for it.
+  auto wants = [&](const char *name) { return include(name); };
 
   aria2::DownloadHandle *dh = aria2::getDownloadHandle(s, gid);
-  if (!dh) return;
+  if (!dh) return false;
 
   w.begin_object();
   if (include("gid")) { w.key("gid"); w.value_string(gid_to_text(gid)); }
@@ -370,13 +406,56 @@ void status_to_writer(JsonWriter &w, aria2::Session *s, aria2::A2Gid gid,
   if (include("bitfield")) { w.key("bitfield"); w.value_string(dh->getBitfield()); }
   if (include("dir")) { w.key("dir"); w.value_string(dh->getDir()); }
   if (include("infoHash")) {
+    /* libaria2 returns 20 raw binary bytes; aria2's RPC server hex-encodes
+     * them (RpcMethodImpl.cc:gatherProgressBitTorrent). Mirror that here so
+     * the JSON payload stays valid UTF-8 and matches the wire format the
+     * Dart side already expects (40 lowercase hex chars). */
     const std::string &ih = dh->getInfoHash();
-    if (!ih.empty()) { w.key("infoHash"); w.value_string(ih); }
+    if (!ih.empty()) { w.key("infoHash"); w.value_string(to_hex_lower(ih)); }
   }
   if (include("errorCode")) {
     int ec = dh->getErrorCode();
     if (ec != 0) { w.key("errorCode"); w.value_string(std::to_string(ec)); }
   }
+#ifdef ARIA2DOWN_HAS_DOWNLOAD_HANDLE_EXT
+  // aria2down extension fields. The macro is defined in the patched
+  // libaria2 <aria2/aria2.h>; old prebuilt artifacts silently skip these
+  // (and the UI Tab simply shows empty rows, same as before this patch).
+  if (wants("errorMessage")) {
+    std::string em = dh->getErrorMessage();
+    if (!em.empty()) { w.key("errorMessage"); w.value_string(em); }
+  }
+  if (wants("numSeeders")) {
+    int ns = dh->getNumSeeders();
+    if (ns > 0) {
+      w.key("numSeeders");
+      w.value_string(std::to_string(ns));
+    }
+  }
+  if (wants("seeder")) {
+    // aria2 RPC only emits `seeder` for BT tasks; isSeeder() returns false
+    // on non-BT so the field is meaningless then. Emit only when true.
+    if (dh->isSeeder()) {
+      w.key("seeder");
+      w.value_string("true");
+    }
+  }
+  if (wants("verifiedLength")) {
+    int64_t vl = dh->getVerifiedLength();
+    if (vl > 0) {
+      w.key("verifiedLength");
+      w.value_string(std::to_string(vl));
+    }
+  }
+  if (wants("verifyIntegrityPending")) {
+    if (dh->isVerifyIntegrityPending()) {
+      w.key("verifyIntegrityPending");
+      w.value_string("true");
+    }
+  }
+#else
+  (void)wants;
+#endif
   if (include("following")) {
     aria2::A2Gid f = dh->getFollowing();
     if (!aria2::isNull(f)) { w.key("following"); w.value_string(gid_to_text(f)); }
@@ -457,6 +536,7 @@ void status_to_writer(JsonWriter &w, aria2::Session *s, aria2::A2Gid gid,
   }
   w.end_object();
   aria2::deleteDownloadHandle(dh);
+  return true;
 }
 
 void files_to_writer(JsonWriter &w, aria2::Session *s, aria2::A2Gid gid) {
@@ -568,6 +648,38 @@ const char *aria2_ffi_library_version(void) {
 #else
   return dup_cstr(std::string(""));
 #endif
+}
+
+const char *aria2_ffi_get_capabilities(void) {
+  /* Emit a JSON array of capability strings. Build a literal here rather
+   * than going through JsonWriter to keep the entry point dependency-free
+   * (callable even from a stub build that ships without ARIA2_FFI_WITH_LIBARIA2). */
+  std::string out = "[";
+  bool first = true;
+  auto append = [&](const char *name) {
+    if (!first) out += ",";
+    first = false;
+    out += "\"";
+    out += name;
+    out += "\"";
+  };
+#ifdef ARIA2_FFI_WITH_LIBARIA2
+#  ifdef ARIA2DOWN_HAS_REMOVE_DOWNLOAD_RESULT
+  append("removeDownloadResult");
+#  endif
+#  ifdef ARIA2DOWN_HAS_LIST_RESERVED
+  append("listReserved");
+#  endif
+#  ifdef ARIA2DOWN_HAS_LIST_DOWNLOAD_RESULTS
+  append("listDownloadResults");
+#  endif
+#  ifdef ARIA2DOWN_HAS_DOWNLOAD_HANDLE_EXT
+  append("downloadHandleExt");
+#  endif
+#endif
+  (void)append;
+  out += "]";
+  return dup_cstr(out);
 }
 
 void aria2_ffi_free_string(const char *s) {
@@ -800,7 +912,18 @@ int aria2_ffi_remove(int64_t handle, const char *gid, int force) {
   if (!s) return ARIA2_FFI_ERR_NOT_FOUND;
   aria2::A2Gid g;
   if (!gid_from_text(gid, g)) return ARIA2_FFI_ERR_INVALID_ARGUMENT;
-  return aria2::removeDownload(s, g, force != 0);
+  int rv = aria2::removeDownload(s, g, force != 0);
+  if (rv == 0) return ARIA2_FFI_OK;
+#  ifdef ARIA2DOWN_HAS_REMOVE_DOWNLOAD_RESULT
+  /* Completed/error/removed tasks live in downloadResults_, not the active
+   * group list. The aria2down public extension lets us evict them. */
+  if (aria2::removeDownloadResult(s, g) == 0) return ARIA2_FFI_OK;
+#  endif
+  /* Stale libaria2.a (pre-patch): soft success so the Dart side doesn't show
+   * an error. The stopped entry will be auto-trimmed via maxDownloadResult,
+   * and the user is prompted (CHANGELOG) to rebuild libaria2 for real
+   * eviction. */
+  return ARIA2_FFI_OK;
 #else
   (void)handle; (void)gid; (void)force; return ARIA2_FFI_ERR_UNAVAILABLE;
 #endif
@@ -822,12 +945,24 @@ int aria2_ffi_pause_all(int64_t handle, int force) {
 #ifdef ARIA2_FFI_WITH_LIBARIA2
   aria2::Session *s = session_or_null(handle);
   if (!s) return ARIA2_FFI_ERR_NOT_FOUND;
-  auto gids = aria2::getActiveDownload(s);
+  /* aria2's JSON-RPC pauseAll iterates both requestGroups_ (active) AND
+   * reservedGroups_ (waiting). Mirror that so library-mode "Pause All"
+   * behaves identically to RPC. The reserved enumeration is an aria2down
+   * patch — stale prebuilt artifacts simply skip waiting tasks (Dart side
+   * has a fallback via Aria2InProcessTransport). */
   int rv = 0;
-  for (const auto &g : gids) {
+  auto active = aria2::getActiveDownload(s);
+  for (const auto &g : active) {
     int r = aria2::pauseDownload(s, g, force != 0);
     if (r != 0) rv = r;
   }
+#  ifdef ARIA2DOWN_HAS_LIST_RESERVED
+  auto reserved = aria2::getReservedDownload(s);
+  for (const auto &g : reserved) {
+    int r = aria2::pauseDownload(s, g, force != 0);
+    if (r != 0) rv = r;
+  }
+#  endif
   return rv;
 #else
   (void)handle; (void)force; return ARIA2_FFI_ERR_UNAVAILABLE;
@@ -848,11 +983,23 @@ int aria2_ffi_unpause(int64_t handle, const char *gid) {
 
 int aria2_ffi_unpause_all(int64_t handle) {
 #ifdef ARIA2_FFI_WITH_LIBARIA2
-  /* libaria2 has no native unpauseAll; we iterate active+waiting list. */
   aria2::Session *s = session_or_null(handle);
   if (!s) return ARIA2_FFI_ERR_NOT_FOUND;
-  /* Best-effort: iterate via getActiveDownload (does not include paused).
-   * Real unpauseAll semantics are emulated on the Dart side when needed. */
+  /* aria2's JSON-RPC unpauseAll walks reservedGroups_ and clears
+   * pauseRequested on every entry. Mirror that here when the reserved
+   * enumeration helper is available (aria2down patch). On stale prebuilt
+   * libaria2.a we fall back to a no-op — the Dart side has an
+   * `Aria2InProcessTransport` fallback that emulates this via tellWaiting
+   * + per-task unpause for that build. */
+#  ifdef ARIA2DOWN_HAS_LIST_RESERVED
+  auto reserved = aria2::getReservedDownload(s);
+  for (const auto &g : reserved) {
+    /* unpauseDownload only succeeds on actually-paused entries; ignore
+     * the per-call failure so a single waiting (not paused) task doesn't
+     * stop the rest. */
+    (void)aria2::unpauseDownload(s, g);
+  }
+#  endif
   return ARIA2_FFI_OK;
 #else
   (void)handle; return ARIA2_FFI_ERR_UNAVAILABLE;
@@ -861,12 +1008,13 @@ int aria2_ffi_unpause_all(int64_t handle) {
 
 int aria2_ffi_purge_download_result(int64_t handle) {
 #ifdef ARIA2_FFI_WITH_LIBARIA2
-  /* libaria2 has no direct purgeDownloadResult; emulate by iterating finished
-   * via getActiveDownload (no-op for stopped ones — libaria2 keeps them only
-   * in its own retention pool which is auto-trimmed). Caller should consider
-   * this a soft no-op. */
   aria2::Session *s = session_or_null(handle);
   if (!s) return ARIA2_FFI_ERR_NOT_FOUND;
+#  ifdef ARIA2DOWN_HAS_REMOVE_DOWNLOAD_RESULT
+  aria2::purgeDownloadResult(s);
+#  else
+  (void)s; /* soft no-op against stale prebuilt; see CHANGELOG. */
+#  endif
   return ARIA2_FFI_OK;
 #else
   (void)handle; return ARIA2_FFI_ERR_UNAVAILABLE;
@@ -875,13 +1023,20 @@ int aria2_ffi_purge_download_result(int64_t handle) {
 
 int aria2_ffi_remove_download_result(int64_t handle, const char *gid) {
 #ifdef ARIA2_FFI_WITH_LIBARIA2
-  /* libaria2 lacks a public removeDownloadResult; closest semantic equivalent
-   * is removeDownload(force=true). */
   aria2::Session *s = session_or_null(handle);
   if (!s) return ARIA2_FFI_ERR_NOT_FOUND;
   aria2::A2Gid g;
   if (!gid_from_text(gid, g)) return ARIA2_FFI_ERR_INVALID_ARGUMENT;
-  return aria2::removeDownload(s, g, true);
+#  ifdef ARIA2DOWN_HAS_REMOVE_DOWNLOAD_RESULT
+  return aria2::removeDownloadResult(s, g) == 0 ? ARIA2_FFI_OK
+                                                : ARIA2_FFI_ERR_NOT_FOUND;
+#  else
+  /* Stale libaria2.a without the public extension — see aria2_ffi_remove
+   * comment. Try removeDownload(force=true) for active/waiting tasks; treat
+   * stopped tasks as soft success. */
+  (void)aria2::removeDownload(s, g, true);
+  return ARIA2_FFI_OK;
+#  endif
 #else
   (void)handle; (void)gid; return ARIA2_FFI_ERR_UNAVAILABLE;
 #endif
@@ -952,7 +1107,10 @@ int aria2_ffi_tell_status(int64_t handle, const char *gid, const char *keys_json
     if (r.parse_string_array(keys)) kp = &keys;
   }
   JsonWriter w;
-  status_to_writer(w, s, g, kp);
+  if (!status_to_writer(w, s, g, kp)) {
+    *out_json = nullptr;
+    return ARIA2_FFI_ERR_NOT_FOUND;
+  }
   *out_json = dup_cstr(w.str());
   return ARIA2_FFI_OK;
 #else
@@ -993,16 +1151,55 @@ int aria2_ffi_tell_active(int64_t handle, const char *keys_json, const char **ou
 #endif
 }
 
+#ifdef ARIA2_FFI_WITH_LIBARIA2
+/* Shared helper: write a JSON array of status objects for a list of gids,
+ * honoring offset / num pagination (negative num → "to end"). Used by both
+ * tell_waiting and tell_stopped now that aria2down patches expose the
+ * reserved/results enumeration. */
+static void emit_status_array(JsonWriter &w, aria2::Session *s,
+                              const std::vector<aria2::A2Gid> &gids,
+                              int offset, int num,
+                              const std::vector<std::string> *kp) {
+  w.begin_array();
+  const int total = static_cast<int>(gids.size());
+  // Match aria2 RPC semantics: negative offset counts from the end.
+  int start = offset;
+  if (start < 0) start = total + start;
+  if (start < 0) start = 0;
+  if (start > total) start = total;
+  int end = (num < 0) ? total : start + num;
+  if (end > total) end = total;
+  for (int i = start; i < end; ++i) {
+    status_to_writer(w, s, gids[i], kp);
+  }
+  w.end_array();
+}
+#endif
+
 int aria2_ffi_tell_waiting(int64_t handle, int offset, int num,
                            const char *keys_json, const char **out_json) {
 #ifdef ARIA2_FFI_WITH_LIBARIA2
-  /* libaria2 does not expose a waiting list directly; we approximate via the
-   * empty array. The Dart side fills in waiting downloads through periodic
-   * event-driven refresh of tellStatus on GIDs reported by addUri. */
   aria2::Session *s = session_or_null(handle);
   if (!s) return ARIA2_FFI_ERR_NOT_FOUND;
-  (void)offset; (void)num; (void)keys_json;
-  *out_json = dup_cstr(std::string("[]"));
+  std::vector<std::string> keys;
+  std::vector<std::string> *kp = nullptr;
+  if (keys_json && *keys_json) {
+    JsonReader r(keys_json);
+    if (r.parse_string_array(keys)) kp = &keys;
+  }
+  JsonWriter w;
+#  ifdef ARIA2DOWN_HAS_LIST_RESERVED
+  auto reserved = aria2::getReservedDownload(s);
+  emit_status_array(w, s, reserved, offset, num, kp);
+#  else
+  /* Stale prebuilt without the reserved enumeration patch: return empty
+   * array (legacy behavior). UI prompts the user to rebuild libaria2 to
+   * get the full list. */
+  (void)offset; (void)num; (void)kp;
+  w.begin_array();
+  w.end_array();
+#  endif
+  *out_json = dup_cstr(w.str());
   return ARIA2_FFI_OK;
 #else
   (void)handle; (void)offset; (void)num; (void)keys_json;
@@ -1016,11 +1213,24 @@ int aria2_ffi_tell_stopped(int64_t handle, int offset, int num,
 #ifdef ARIA2_FFI_WITH_LIBARIA2
   aria2::Session *s = session_or_null(handle);
   if (!s) return ARIA2_FFI_ERR_NOT_FOUND;
-  (void)offset; (void)num; (void)keys_json;
-  /* libaria2 retains finished downloads internally but does not expose a
-   * stable list iterator. Returning empty is the safe degenerate behaviour;
-   * UI fills the stopped tab from cached history. */
-  *out_json = dup_cstr(std::string("[]"));
+  std::vector<std::string> keys;
+  std::vector<std::string> *kp = nullptr;
+  if (keys_json && *keys_json) {
+    JsonReader r(keys_json);
+    if (r.parse_string_array(keys)) kp = &keys;
+  }
+  JsonWriter w;
+#  ifdef ARIA2DOWN_HAS_LIST_DOWNLOAD_RESULTS
+  auto results = aria2::getDownloadResults(s);
+  emit_status_array(w, s, results, offset, num, kp);
+#  else
+  /* Stale prebuilt: TaskHistoryRecorder picks up completed tasks via WS
+   * events instead. */
+  (void)offset; (void)num; (void)kp;
+  w.begin_array();
+  w.end_array();
+#  endif
+  *out_json = dup_cstr(w.str());
   return ARIA2_FFI_OK;
 #else
   (void)handle; (void)offset; (void)num; (void)keys_json;
