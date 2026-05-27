@@ -39,6 +39,12 @@ dev_dependencies:
   flutter_lints: ^5.0.0
   flutter_launcher_icons: ^0.14.3
   msix: ^3.16.8
+  # `task_history_repository_test.dart` 用 `PathProviderPlatform` mock 把
+  # path_provider 重定向到 `Directory.systemTemp`，需要显式声明这两个
+  # transitive 依赖以满足 `depend_on_referenced_packages` lint（否则 CI
+  # 上 `flutter analyze` 默认把 info 当 fatal 失败）。
+  path_provider_platform_interface: ^2.1.0
+  plugin_platform_interface: ^2.0.0
 
 # 从 assets/icon/app_icon.png（1024×1024）生成各平台启动图标，避免手工拉伸。
 # 更新主图后执行: dart run flutter_launcher_icons
