@@ -49,8 +49,22 @@ jobs:
       - name: Format check
         run: dart format --set-exit-if-changed lib test
 
+      # 用 expanded reporter 让 failing test 的完整 stack 落到 stdout（默认
+      # compact reporter 把失败上下文淹没在进度行里）。失败时把 log
+      # artifact 上传供事后排查——尤其在 CI 行为偏离本地时（譬如 e2e
+      # 测试在缺 prebuilt libaria2 的 Linux runner 上的 skip 判定差异）。
       - name: Test
-        run: flutter test
+        id: test
+        run: flutter test --reporter expanded 2>&1 | tee flutter-test.log
+        shell: bash
+
+      - name: Upload test log on failure
+        if: ${{ failure() && steps.test.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-test-log
+          path: flutter-test.log
+          if-no-files-found: warn
 
   # ---- Linux: tar.gz of release bundle directory --------------------------
   linux-release-bundle:
