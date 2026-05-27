@@ -23,6 +23,12 @@ env:
   # `fvm use <version>` + 这里同步即可。
   FLUTTER_VERSION: '3.32.8'
 
+# `contents: write` 让失败时的 "Comment failing test log on commit" 步骤
+# 能用 GITHUB_TOKEN 把 flutter-test.log tail POST 成 commit comment（公开
+# 可读，便于在没 OAuth 的环境通过 REST API 调取诊断信息）。
+permissions:
+  contents: write
+
 jobs:
   analyze-test:
     runs-on: ubuntu-latest
@@ -78,30 +84,28 @@ jobs:
           GH_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          # Capture the most informative tail; commit comment body has a
-          # ~65 KB ceiling so we cap to the last 1200 lines or 50 KB.
-          TAIL_CONTENT="$(tail -n 1200 flutter-test.log | tail -c 50000)"
-          export TAIL_CONTENT
-          python3 <<'PY'
+          # Cap to the last 1200 lines or 50 KB (commit comment body limit).
+          tail -n 1200 flutter-test.log | tail -c 50000 > /tmp/_tail.txt
+          export TAIL_CONTENT="$(cat /tmp/_tail.txt)"
+          python3 -c '
           import json, os, urllib.request
-          tail = os.environ.get('TAIL_CONTENT', '(empty)')
+          tail = os.environ.get("TAIL_CONTENT", "(empty)")
           body = "**CI Flutter test failure (tail)**\n\n```\n" + tail + "\n```"
           payload = json.dumps({"body": body}).encode()
-          url = f"https://api.github.com/repos/{os.environ['GH_REPO']}/commits/{os.environ['GH_SHA']}/comments"
+          url = "https://api.github.com/repos/{}/commits/{}/comments".format(
+              os.environ["GH_REPO"], os.environ["GH_SHA"])
           req = urllib.request.Request(
-              url,
-              data=payload,
-              method='POST',
+              url, data=payload, method="POST",
               headers={
-                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
-                  'Accept': 'application/vnd.github+json',
-                  'Content-Type': 'application/json',
-                  'X-GitHub-Api-Version': '2022-11-28',
+                  "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+                  "X-GitHub-Api-Version": "2022-11-28",
               },
           )
           with urllib.request.urlopen(req) as r:
-              print('Comment posted, HTTP', r.status)
-          PY
+              print("Comment posted, HTTP", r.status)
+          '
 
   # ---- Linux: tar.gz of release bundle directory --------------------------
   linux-release-bundle:
