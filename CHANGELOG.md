@@ -4,6 +4,30 @@
 
 ## [Unreleased]
 
+### 工程（GitHub Actions 全平台打包与 Tag-Release 流程完善）
+
+之前 CI 只验证 build 能过 + 上传 bundle 目录；本次升级为全平台**单文件可分发安装包**直接 attach 到 Actions artifact + GitHub Release，覆盖 Windows MSIX、macOS DMG、Linux tar.gz、Android per-ABI APK。
+
+- **[`flutter.yml`](.github/workflows/flutter.yml) (push/PR CI)**：
+  - **Windows**：build 之后追加 `Compress-Archive` 产 ZIP + `dart run msix:create` 产 MSIX（用现有 [`pubspec.yaml`](pubspec.yaml) 的 `msix_config:`：display_name / publisher / identity / capabilities=internetClient / protocol_activation=aria2down,magnet / file_extension=.torrent,.metalink,.meta4）。MSIX 步骤 `continue-on-error: true` 避免 PR 被偶尔的 msix 工具问题阻塞；ZIP 始终上传作为兜底（解压即用，不需要 Sideload）。
+  - **macOS**：build 之后追加 `hdiutil create -format UDZO` 产 DMG（unsigned，用户首次打开需要在系统设置里允许；release 流程后续接入 Apple Notarization）。
+  - **Linux**：build 之后追加 `tar -czf` 把 release bundle 打包成 tar.gz。
+  - **Android**：增加 `actions/setup-java@v4` (temurin 17)，同时跑 `flutter build apk --split-per-abi`（arm64-v8a / armeabi-v7a / x86_64 各 ~30MB）+ universal APK 兜底，命名 `Aria2Down-android-<abi>-<ver>.apk`。
+  - 所有 artifact 命名带 pubspec 版本号（如 `Aria2Down-windows-x64-0.1.0-msix`），方便维护者直接从 Actions 下载验证。
+- **[`release.yml`](.github/workflows/release.yml) (tag-triggered release)**：
+  - 触发方式从 `workflow_dispatch` 改为 `push: tags: ['v*']`（推 tag 自动产 release）+ 保留 `workflow_dispatch` 兜底（接受 `tag` 参数或留空走 dry-run）。
+  - `resolve-tag` job 解析 tag → version；下游 4 个平台 job (linux / macos / windows / android) 并行打包；最后 `publish` job 下载所有 `release-*` artifact + 用 `softprops/action-gh-release@v2` 创建 / 更新 GitHub Release，自动 attach DMG + MSIX + ZIP + tar.gz + APKs。
+  - 单平台 build 失败用 `continue-on-error: true` 解耦——其它平台仍按计划上传（之前是瀑布失败，一个 OS 挂全 release 缺资产）。
+  - Release notes 优先从 [`scripts/print_release_notes.sh`](scripts/print_release_notes.sh) 提取 [Unreleased] 段落；脚本不可用时落到简短通用文案。
+  - tag 含 `-`（如 `v0.2.0-rc1`）自动标记为 prerelease。
+  - `permissions: contents: write` 让 GITHUB_TOKEN 能创建 / 更新 release。
+- **`flutter.yml` 旧入口保留**：每次 push/PR 仍会跑 analyze + format + test（不变），所有桌面/移动平台都产出 artifact 方便手动下载验收。
+- **行为细节**：
+  - **MSIX 未签名**：用户首次安装需要先启用 Windows Sideload (`Settings → Privacy & Security → For Developers → Developer Mode`) 或自行 `signtool sign`。这是 CI 上的合理默认；生产签名应交给 release 维护者本地用 `signtool` + 证书完成（CI secret 暴露签名证书风险高）。
+  - **DMG 未 Notarize**：macOS Gatekeeper 首次打开会拦截，用户需在系统设置里允许。
+  - **iOS smoke 保留**：`flutter build ios --release --no-codesign` 只验证编译，IPA / TestFlight 上传仍走本机签名流程（CI 上跑需要 Apple Developer 证书 + provisioning profile，超出本次范围）。
+- **验证**：本地 `flutter analyze` 通过；3 个 workflow YAML 用 ruby YAML 解析器 round-trip 验证合法；push 后 GitHub Actions 实际跑全平台 → artifact 下载验证 MSIX / DMG / tar.gz / APK 都能产出。
+
 ### 修改（统一应用显示名为 `Aria2Down`）
 
 之前各平台用户可见的应用名是 `aria2down`（Android）/ `Aria2down`（iOS）/ `aria2down`（macOS / Windows / Linux），大小写不一致。本次把**用户可见的应用名**全部统一为大写驼峰 `Aria2Down`；**技术标识符**（binary filename / package id / Dart package name / URL scheme / MethodChannel name / 文件系统状态目录）刻意保持原 lowercase，避免破坏升级路径与平台命名约定。

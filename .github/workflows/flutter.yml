@@ -12,6 +12,11 @@ on:
 # 引擎已经从源码、staging 脚本与 CI 流程中整体移除——以下 release-bundle 不
 # 再下载 / 编译 / 拷贝 `aria2c` 到产物里，缺 prebuilt libaria2 时 daemon 启动
 # 会直接抛错并引导用户改用远程 RPC。
+#
+# 每个桌面 job 都产出**单文件**可分发安装包（macOS DMG / Windows MSIX + ZIP /
+# Linux tar.gz），方便维护者从 GitHub Actions artifact 直接下载手动验证：
+# 不再上传整个 bundle 目录（actions/upload-artifact 把目录归档成 .zip，下载后
+# 缺保留权限位 / chmod，桌面验证更麻烦）。
 jobs:
   analyze-test:
     runs-on: ubuntu-latest
@@ -37,6 +42,7 @@ jobs:
       - name: Test
         run: flutter test
 
+  # ---- Linux: tar.gz of release bundle directory --------------------------
   linux-release-bundle:
     runs-on: ubuntu-latest
     needs: analyze-test
@@ -72,19 +78,27 @@ jobs:
       - name: Build Linux release
         run: flutter build linux --release
 
-      - name: Locate bundle
-        id: stage
+      - name: Package tar.gz
+        id: pkg
         run: |
           set -euo pipefail
           BUNDLE="$(find build/linux -path '*/release/bundle' -type d | head -n 1)"
           test -n "${BUNDLE}" && test -d "${BUNDLE}"
-          echo "bundle=${BUNDLE}" >> "$GITHUB_OUTPUT"
+          VER="$(grep '^version:' pubspec.yaml | head -1 | awk '{print $2}' | cut -d+ -f1)"
+          mkdir -p build/dist
+          OUT="build/dist/Aria2Down-linux-x86_64-${VER}.tar.gz"
+          tar -czf "${OUT}" -C "${BUNDLE}" .
+          ls -la "${OUT}"
+          echo "out=${OUT}" >> "$GITHUB_OUTPUT"
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: aria2down-linux-amd64-bundle
-          path: ${{ steps.stage.outputs.bundle }}/
+          name: Aria2Down-linux-x86_64-${{ steps.pkg.outputs.version }}
+          path: ${{ steps.pkg.outputs.out }}
+          if-no-files-found: error
 
+  # ---- macOS: hdiutil DMG --------------------------------------------------
   macos-release-bundle:
     runs-on: macos-latest
     needs: analyze-test
@@ -115,19 +129,30 @@ jobs:
       - name: Build macOS release
         run: flutter build macos --release
 
-      - name: Locate app bundle
-        id: stage_mac
+      - name: Package DMG
+        id: pkg_mac
         run: |
           set -euo pipefail
           APP="$(find build/macos -type d -name '*.app' | grep -i release | head -n 1)"
           test -n "${APP}" && test -d "${APP}/Contents/MacOS"
-          echo "app=${APP}" >> "$GITHUB_OUTPUT"
+          VER="$(grep '^version:' pubspec.yaml | head -1 | awk '{print $2}' | cut -d+ -f1)"
+          mkdir -p build/dist
+          OUT="build/dist/Aria2Down-macos-${VER}.dmg"
+          # 没有签名 / Apple Notarization 的 DMG：用户首次打开需要在 System
+          # Settings → Privacy & Security 里"允许"。打 release 时再走签名 +
+          # notarytool 流程，CI 这里只验证打包链路。
+          hdiutil create -volname "Aria2Down" -srcfolder "${APP}" -ov -format UDZO "${OUT}"
+          ls -la "${OUT}"
+          echo "out=${OUT}" >> "$GITHUB_OUTPUT"
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: aria2down-macos-bundle
-          path: ${{ steps.stage_mac.outputs.app }}
+          name: Aria2Down-macos-${{ steps.pkg_mac.outputs.version }}
+          path: ${{ steps.pkg_mac.outputs.out }}
+          if-no-files-found: error
 
+  # ---- Windows: MSIX (Microsoft Store / sideload) + ZIP (legacy) ---------
   windows-release-bundle:
     runs-on: windows-latest
     needs: analyze-test
@@ -148,17 +173,81 @@ jobs:
       - name: Build Windows release
         run: flutter build windows --release
 
-      - name: Upload Release folder
+      # ZIP of the Release folder：给那些**未启用 Sideload / Developer
+      # Mode** 的用户解压即用的兜底。MSIX 必须用 PowerShell `Add-
+      # AppxPackage` 或 Microsoft Store 才能安装；很多内网受限环境用不到。
+      - name: Package ZIP
+        id: pkg_zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $rel = 'build/windows/x64/runner/Release'
+          if (-not (Test-Path $rel)) {
+            $rel = (Get-ChildItem -Recurse -Directory build/windows -Filter Release |
+                    Where-Object { $_.FullName -match 'runner[\\/]Release' } |
+                    Select-Object -First 1).FullName
+          }
+          if (-not $rel) { throw "Windows Release folder not found" }
+          $ver = (Select-String -Pattern '^version:' pubspec.yaml |
+                  Select-Object -First 1).Line.Split(' ')[1].Split('+')[0]
+          New-Item -ItemType Directory -Force -Path build/dist | Out-Null
+          $out = "build/dist/Aria2Down-windows-x64-$ver.zip"
+          Compress-Archive -Path "$rel/*" -DestinationPath $out -Force
+          Get-Item $out | Format-List FullName,Length
+          "out=$out"     | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Aria2Down-windows-x64-${{ steps.pkg_zip.outputs.version }}-zip
+          path: ${{ steps.pkg_zip.outputs.out }}
+          if-no-files-found: error
+
+      # MSIX：`dart run msix:create` 会读 pubspec.yaml 的 `msix_config:`
+      # 段（display_name / publisher / identity / version / capabilities /
+      # protocol_activation aria2down + magnet / file_extension .torrent +
+      # .metalink + .meta4），输出到 build/windows/x64/runner/Release/。
+      # **CI 上不签名**——产物是 unsigned MSIX，用户安装需要先启用 Windows
+      # Sideload（Settings → Privacy & Security → For Developers → Developer
+      # Mode），或自行用 signtool 签名后再安装。
+      - name: Package MSIX (unsigned)
+        id: pkg_msix
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dart run msix:create
+          $msix = Get-ChildItem -Recurse -Filter *.msix build/windows |
+                  Select-Object -First 1
+          if (-not $msix) { throw "MSIX not produced" }
+          $ver = (Select-String -Pattern '^version:' pubspec.yaml |
+                  Select-Object -First 1).Line.Split(' ')[1].Split('+')[0]
+          New-Item -ItemType Directory -Force -Path build/dist | Out-Null
+          $out = "build/dist/Aria2Down-windows-x64-$ver.msix"
+          Copy-Item $msix.FullName $out -Force
+          Get-Item $out | Format-List FullName,Length
+          "out=$out"     | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Upload MSIX
+        if: steps.pkg_msix.outputs.out != ''
         uses: actions/upload-artifact@v4
         with:
-          name: aria2down-windows-release
-          path: build/windows/x64/runner/Release/
+          name: Aria2Down-windows-x64-${{ steps.pkg_msix.outputs.version }}-msix
+          path: ${{ steps.pkg_msix.outputs.out }}
+          if-no-files-found: warn
 
+  # ---- Android: release APK (no signing) ----------------------------------
   android-apk:
     runs-on: ubuntu-latest
     needs: analyze-test
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
       - uses: subosito/flutter-action@v2
         with:
@@ -168,15 +257,45 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build APK (release)
+      # `--split-per-abi` 让最终 APK 不再为每个 ABI 打一份（arm64-v8a /
+      # armeabi-v7a / x86_64），从 ~80MB 单文件降到 ~30MB/ABI。CI 同时
+      # 产出"universal" APK 兜底没有 ABI 探测的安装路径（譬如某些三方应
+      # 用市场）。
+      - name: Build APK (split-per-abi)
+        run: flutter build apk --release --split-per-abi
+
+      - name: Build universal APK (fallback)
         run: flutter build apk --release
+
+      - name: Rename APKs with version
+        id: rename
+        run: |
+          set -euo pipefail
+          VER="$(grep '^version:' pubspec.yaml | head -1 | awk '{print $2}' | cut -d+ -f1)"
+          mkdir -p build/dist
+          src='build/app/outputs/flutter-apk'
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            f="${src}/app-${abi}-release.apk"
+            if [[ -f "${f}" ]]; then
+              cp -f "${f}" "build/dist/Aria2Down-android-${abi}-${VER}.apk"
+            fi
+          done
+          if [[ -f "${src}/app-release.apk" ]]; then
+            cp -f "${src}/app-release.apk" \
+                  "build/dist/Aria2Down-android-universal-${VER}.apk"
+          fi
+          ls -la build/dist/
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: aria2down-android-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: Aria2Down-android-${{ steps.rename.outputs.version }}
+          path: build/dist/*.apk
+          if-no-files-found: error
 
   # iOS 编译冒烟（无签名、无真机）。
+  # 完整 ipa 需要 Apple Developer 证书 + provisioning profile，CI 上保留
+  # 冒烟即可，正式 release 走本机签名上传 TestFlight 流程。
   ios-build-smoke:
     runs-on: macos-latest
     needs: analyze-test

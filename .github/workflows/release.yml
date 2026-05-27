@@ -1,40 +1,71 @@
-# 手动发版校验与 Linux bundle 构建（不打 tag，维护者本地执行 tag / gh release）。
-name: Release prep
+# Tag-triggered multi-platform release.
+#
+# 触发方式：
+#   1. `git tag v0.2.0 && git push origin v0.2.0` —— 自动跑全平台打包并
+#      创建 GitHub Release，把 DMG / MSIX / ZIP / tar.gz / APK attach 到
+#      Release Assets。
+#   2. Actions 页面手动 workflow_dispatch（用作 dry-run / 故障重跑）。
+#
+# ADR-010：本机模式只剩 LibraryDaemon（FFI 内嵌 libaria2）。aria2c 子进程
+# staging 流程已经整体移除，desktop 三平台 release 都依赖 prebuilt libaria2
+# 与本机 platform tool chain，构建失败时 release 会缺对应 OS 的资产，但其
+# 它平台 job 仍按计划上传——`continue-on-error` + per-job upload 把"全部
+# 平台或全部失败"的传统瀑布解耦。
+name: Release
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
-      skip_build:
-        description: 'Skip Linux bundle build'
-        type: boolean
-        default: false
+      tag:
+        description: 'Tag to publish (e.g. v0.2.0). Leave blank for dry-run.'
+        required: false
+        type: string
+
+permissions:
+  contents: write   # 创建 / 更新 GitHub Release + 上传 assets
 
 jobs:
-  validate:
+  resolve-tag:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      is_release: ${{ steps.resolve.outputs.is_release }}
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve tag / version
+        id: resolve
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            IS_RELEASE=true
+          elif [[ -n "${{ inputs.tag || '' }}" ]]; then
+            TAG="${{ inputs.tag }}"
+            IS_RELEASE=true
+          else
+            TAG="dry-run-$(date -u +%Y%m%d-%H%M%S)"
+            IS_RELEASE=false
+          fi
+          VER="$(grep '^version:' pubspec.yaml | head -1 | awk '{print $2}' | cut -d+ -f1)"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+          echo "is_release=${IS_RELEASE}" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag=${TAG} version=${VER} is_release=${IS_RELEASE}"
 
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Install aria2 (E2E)
-        run: sudo apt-get update && sudo apt-get install -y aria2
-
-      - run: ./scripts/validate_release.sh
-
-  linux-bundle:
-    if: ${{ inputs.skip_build != true }}
+  linux:
     runs-on: ubuntu-latest
-    needs: validate
+    needs: resolve-tag
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install deps
+      - name: Install Linux desktop build deps
         run: |
           sudo apt-get update
           sudo apt-get install -y clang cmake ninja-build pkg-config \
@@ -42,13 +73,7 @@ jobs:
             autoconf automake libtool libssl-dev zlib1g-dev \
             libsqlite3-dev libc-ares-dev
 
-      # ADR-010：本机模式只剩 LibraryDaemon（FFI 内嵌 libaria2）。这里先编
-      # libaria2 静态库；编不出来时 LibraryDaemon 启动会抛
-      # `Aria2NativeUnavailableException`，用户必须改用远程 RPC（设置页有
-      # 明确引导）。aria2c 子进程兜底已经从源码与 release 流程整体移除。
-      - name: Try build libaria2 (only local engine; ADR-007 / ADR-010)
-        id: build_libaria2
-        continue-on-error: true
+      - name: Build libaria2 (Linux x86_64)
         run: ./scripts/build_libaria2_linux.sh
 
       - uses: subosito/flutter-action@v2
@@ -60,15 +85,206 @@ jobs:
       - run: flutter config --enable-linux-desktop
       - run: flutter build linux --release
 
-      - name: Locate bundle
-        id: stage
+      - name: Package tar.gz
+        id: pkg
         run: |
           set -euo pipefail
           BUNDLE="$(find build/linux -path '*/release/bundle' -type d | head -n 1)"
-          test -n "${BUNDLE}" && test -d "${BUNDLE}"
-          echo "bundle=${BUNDLE}" >> "$GITHUB_OUTPUT"
+          mkdir -p build/dist
+          OUT="build/dist/Aria2Down-linux-x86_64-${{ needs.resolve-tag.outputs.version }}.tar.gz"
+          tar -czf "${OUT}" -C "${BUNDLE}" .
+          ls -la "${OUT}"
+          echo "out=${OUT}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: aria2down-linux-release-prep
-          path: ${{ steps.stage.outputs.bundle }}/
+          name: release-linux
+          path: ${{ steps.pkg.outputs.out }}
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    needs: resolve-tag
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build deps
+        run: brew install autoconf automake libtool c-ares sqlite3 pkg-config || true
+
+      - name: Build libaria2 (macOS universal)
+        run: ./scripts/build_libaria2_macos.sh
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter config --enable-macos-desktop
+      - run: flutter build macos --release
+
+      - name: Package DMG
+        id: pkg
+        run: |
+          set -euo pipefail
+          APP="$(find build/macos -type d -name '*.app' | grep -i release | head -n 1)"
+          mkdir -p build/dist
+          OUT="build/dist/Aria2Down-macos-${{ needs.resolve-tag.outputs.version }}.dmg"
+          hdiutil create -volname "Aria2Down" -srcfolder "${APP}" -ov -format UDZO "${OUT}"
+          ls -la "${OUT}"
+          echo "out=${OUT}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: ${{ steps.pkg.outputs.out }}
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    needs: resolve-tag
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter config --enable-windows-desktop
+      - run: flutter build windows --release
+
+      - name: Package ZIP + MSIX
+        id: pkg
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ver = '${{ needs.resolve-tag.outputs.version }}'
+          New-Item -ItemType Directory -Force -Path build/dist | Out-Null
+
+          # ---- ZIP（解压即用） -----------------------------------------
+          $rel = 'build/windows/x64/runner/Release'
+          if (-not (Test-Path $rel)) {
+            $rel = (Get-ChildItem -Recurse -Directory build/windows -Filter Release |
+                    Where-Object { $_.FullName -match 'runner[\\/]Release' } |
+                    Select-Object -First 1).FullName
+          }
+          $zip = "build/dist/Aria2Down-windows-x64-$ver.zip"
+          Compress-Archive -Path "$rel/*" -DestinationPath $zip -Force
+          Get-Item $zip | Format-List FullName,Length
+
+          # ---- MSIX（Microsoft Store / sideload，unsigned） -----------
+          dart run msix:create
+          $msix = Get-ChildItem -Recurse -Filter *.msix build/windows |
+                  Select-Object -First 1
+          if ($msix) {
+            $out = "build/dist/Aria2Down-windows-x64-$ver.msix"
+            Copy-Item $msix.FullName $out -Force
+            Get-Item $out | Format-List FullName,Length
+            "msix=$out" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          }
+          "zip=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: |
+            ${{ steps.pkg.outputs.zip }}
+            ${{ steps.pkg.outputs.msix }}
+          if-no-files-found: warn
+
+  android:
+    runs-on: ubuntu-latest
+    needs: resolve-tag
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build APK (split-per-abi)
+        run: flutter build apk --release --split-per-abi
+
+      - name: Build universal APK
+        run: flutter build apk --release
+
+      - name: Rename APKs
+        id: pkg
+        run: |
+          set -euo pipefail
+          VER="${{ needs.resolve-tag.outputs.version }}"
+          mkdir -p build/dist
+          src='build/app/outputs/flutter-apk'
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            f="${src}/app-${abi}-release.apk"
+            [[ -f "${f}" ]] && cp -f "${f}" "build/dist/Aria2Down-android-${abi}-${VER}.apk"
+          done
+          if [[ -f "${src}/app-release.apk" ]]; then
+            cp -f "${src}/app-release.apk" "build/dist/Aria2Down-android-universal-${VER}.apk"
+          fi
+          ls -la build/dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: build/dist/*.apk
+          if-no-files-found: error
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [resolve-tag, linux, macos, windows, android]
+    if: ${{ always() && needs.resolve-tag.outputs.is_release == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
+
+      - name: List collected assets
+        run: ls -la dist/
+
+      - name: Extract release notes from CHANGELOG (best effort)
+        id: notes
+        run: |
+          set -euo pipefail
+          TAG='${{ needs.resolve-tag.outputs.tag }}'
+          if [[ -f scripts/print_release_notes.sh ]]; then
+            scripts/print_release_notes.sh "${TAG}" > release_notes.md || true
+          fi
+          if [[ ! -s release_notes.md ]]; then
+            echo "Auto-generated release for ${TAG}." > release_notes.md
+            echo "" >> release_notes.md
+            echo "Assets: linux tar.gz / macOS dmg / Windows zip + msix / Android apk (per-ABI + universal)." >> release_notes.md
+          fi
+          head -n 5 release_notes.md
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.resolve-tag.outputs.tag }}
+          name: ${{ needs.resolve-tag.outputs.tag }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(needs.resolve-tag.outputs.tag, '-') }}
+          fail_on_unmatched_files: false
+          files: |
+            dist/*
