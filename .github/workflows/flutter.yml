@@ -17,6 +17,12 @@ on:
 # Linux tar.gz），方便维护者从 GitHub Actions artifact 直接下载手动验证：
 # 不再上传整个 bundle 目录（actions/upload-artifact 把目录归档成 .zip，下载后
 # 缺保留权限位 / chmod，桌面验证更麻烦）。
+env:
+  # 固定 Flutter SDK 版本，与本地 `fvm` 持有的 3.32.8 一致，避免上游 stable
+  # 跳版引入新 lint info / behavior change 让 CI 单方面失败。升级时本地
+  # `fvm use <version>` + 这里同步即可。
+  FLUTTER_VERSION: '3.32.8'
+
 jobs:
   analyze-test:
     runs-on: ubuntu-latest
@@ -28,13 +34,17 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - name: Install dependencies
         run: flutter pub get
 
+      # `--no-fatal-infos`：lint info 在 SDK / package 升级中容易跳动（譬如
+      # 新增 `depend_on_referenced_packages` / `prefer_const_constructors` 等），
+      # 不让 PR 因这种"知道但暂不修"的提示阻塞。warning 与 error 仍 fatal。
       - name: Analyze
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
 
       - name: Format check
         run: dart format --set-exit-if-changed lib test
@@ -67,6 +77,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - name: Install dependencies
@@ -118,6 +129,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - name: Install dependencies
@@ -162,6 +174,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - name: Install dependencies
@@ -252,6 +265,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - name: Install dependencies
@@ -305,6 +319,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
       - name: Install dependencies
