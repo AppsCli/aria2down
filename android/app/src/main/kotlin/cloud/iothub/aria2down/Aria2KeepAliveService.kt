@@ -73,6 +73,24 @@ class Aria2KeepAliveService : Service() {
         super.onDestroy()
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // 用户从 Recent Apps 滑掉了 App task。默认 START_STICKY 行为下前台
+        // 服务会继续运行 → Application 进程被保留 → 但 FlutterEngine /
+        // DartVM / aria2 worker isolate 已随 task 一并销毁，libaria2 进程级
+        // 单例 (g_session、c-ares / OpenSSL 全局回调、bittorrent extension
+        // 中的 NativeCallable trampoline) 全部成了孤儿。下次用户从通知 /
+        // 图标进入时会触发已知的 EpollEventPoll::poll segfault（详见
+        // CHANGELOG）。
+        //
+        // 显式停服务并杀进程：下次启动是 fresh process，libaria2 单例
+        // 重新干净 init，规避整条 stranded 路径。
+        releaseWakeLock()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+        super.onTaskRemoved(rootIntent)
+        android.os.Process.killProcess(android.os.Process.myPid())
+    }
+
     private fun formatStats(down: Long, up: Long, active: Int, waiting: Int): String {
         return "↓ ${formatSpeed(down)}  ↑ ${formatSpeed(up)}  " +
                 getString(R.string.keep_alive_stats_active, active, waiting)

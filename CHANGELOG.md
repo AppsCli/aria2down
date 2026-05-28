@@ -4,6 +4,44 @@
 
 ## [Unreleased]
 
+### 修复（Android：上一轮 stranded-session 自接管修复在 Redmi Android 16 上仍 segfault，改走"进程级 fresh start"策略）
+
+用户反馈：上一轮 commit `d644cec` 修复后又收到崩溃栈（机型 Redmi Android 16 / OS3.0.302.0 / `cloud.iothub.aria2down`）：
+
+```
+#00 pc 000000000050d944  libaria2_native.so (aria2::EpollEventPoll::poll(timeval const&)+380)
+#01 pc 0000000000425e1c  libaria2_native.so (aria2::DownloadEngine::run(bool)+188)
+#02 pc 0000000000371050  libaria2_native.so (aria2_ffi_run_once+160)
+#03 pc 0000000000008004  [anon:dart-code]
+```
+
+复现路径和上一轮一致：APP 退出后前台服务仍在，从通知 / 图标重进 → 闪退。但 backtrace 落在**新 session** 的 `EpollEventPoll::poll`——也就是 `aria2_ffi_session_new` 的自接管路径里 `sessionFinal(stale) + sessionNew` 都返回成功了，可是新 session 第一次跑 `run_once` 就 segfault。
+
+**根因（比上一轮更深一层）**：libaria2 上游**不真正支持** "同一 `libraryInit` 生命周期里 sessionFinal 一个 session 然后立刻 sessionNew 另一个" 的路径。`Session destructor` 只清掉 session 自己持有的 `EpollEventPoll`、`BtRegistry` 等成员；但 libaria2 内部静态 / 全局 state——`SocketCore::socketPool_`、`AsyncNameResolver` 的 callback 注册表、OpenSSL `SSL_CTX` 上的回调指针、BitTorrent extension 内部映射等——**继续持有指向已销毁 session 内部对象的悬空指针**，以及（这才是关键）**指向上一个 worker isolate 已经被 Dart runtime 销毁的 `NativeCallable.listener` trampoline 的悬空函数指针**。新 session 的 `EpollEventPoll::poll` demux epoll events 时通过 `epoll_event.data.ptr` 跳到这些已死回调 → 解引用悬空指针 → segfault。把我们自己的 `g_cb` 清空只能切断**主调用**这条路径，但 c-ares / OpenSSL / bittorrent extension 通过别的通道持有的 trampoline 仍然在 libaria2 globals 里——我们够不到。
+
+结论：在当前 libaria2 进程级单例 + 跨 Flutter Engine 生命周期的架构下，**"接管孤儿 session"在原生层根本无法做干净**。
+
+**修复（从源头消除"孤儿 session"出现的可能性）**——双层防御：
+
+**第一层（Java / Android 生命周期，避免 stranded 状态出现）**：
+
+1. [`MainActivity.onDestroy`](android/app/src/main/kotlin/cloud/iothub/aria2down/MainActivity.kt)：Activity 真的销毁时（manifest `configChanges` 已经吞掉所有常见配置变化，所以 onDestroy 走到这里就是用户真的要退出 / 系统强制回收）显式 `stopService(Aria2KeepAliveService)` 并 `Process.killProcess(myPid())` 让整个 Application 进程退出。靠 `isChangingConfigurations` 保险排除横竖屏旋转等罕见 recreate 路径。
+2. [`Aria2KeepAliveService.onTaskRemoved`](android/app/src/main/kotlin/cloud/iothub/aria2down/Aria2KeepAliveService.kt)：用户从 Recent Apps 滑掉 App task 时（默认 START_STICKY 行为下前台服务会继续保活，但 FlutterEngine + DartVM + worker isolate 已经销毁），主动 `stopForeground + stopSelf + killProcess`。
+
+下次启动一定是 fresh process → libaria2.so 重新 mmap → 所有进程级单例从零 init → 不存在 stranded state。"后台保活下载"的语义本来就在 worker isolate 跟随 root isolate 销毁的瞬间被打破（worker isolate 跟 DartVM 绑死，FlutterEngine destroy → DartVM shutdown → worker isolate 死，aria2 早就不在跑），前台服务继续活着只是通知栏 illusion——删掉这个 illusion 反而让生命周期一致、避免 crash。
+
+**第二层（Native 兜底防御）**：
+
+[`aria2_ffi_session_new`](packages/aria2_native/src/aria2_ffi.cc) 检测到 `g_session != nullptr` 时直接 `_exit(0)`——不再尝试上一轮的 sessionFinal 自接管路径。前台服务 START_STICKY，Android 在进程退出后会自动重启服务并冷启动 Application；用户看到的是"启动 splash 闪一下"，远好于 native segfault。用 `_exit` 而不是 `exit` 是有意为之：跳过 C++ static dtors，因为那些 globals 正是已经损坏的部分。
+
+经过第一层修复，第二层在正常使用下应该永远不会被触发——它只是 belt-and-suspenders，防御我们没预料到的 Android 系统行为。
+
+**验证**：
+
+- `flutter analyze`：clean ✓
+- `flutter test`：159 pass + 1 skip（缺 native lib 的 e2e 测试，预期跳过）✓
+- 用户后续操作：拉 commit → `flutter clean && flutter run -d <android>` 即生效。无需重跑 `./scripts/build_libaria2_android_macos.sh`，prebuilt libaria2.a 未变。后台/前台来回切若干次，按 Back 退出 → 通知栏点回来；或者 Recent Apps 滑掉 → 图标点回来；均应稳定进入应用，不再 EpollEventPoll::poll segfault。
+
 ### 修复（Android：应用切到后台后从通知栏 / 图标重进应用每次都提示「libaria2 启动失败: aria2_ffi_session_new 失败」）
 
 用户反馈："Android 版本，应用退后台之后再从通知栏或者图标重进 App，每次都弹出 `libaria2 启动失败`，要重启系统或者杀掉应用进程才行。"

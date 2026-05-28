@@ -723,46 +723,40 @@ int aria2_ffi_session_new(const char *options_json, int64_t *out_handle) {
   cfg.downloadEventCallback = trampoline_event_cb;
   cfg.userData = nullptr;
 
-  /* Reclaim a stranded singleton from a previous process lifetime.
+  /* Bail out on stranded singleton — the previous in-process reclaim path
+   * (sessionFinal(stale) + sessionNew) turned out to crash on Android in
+   * libaria2's multi-session-per-libraryInit code path: the new session
+   * built fine, but its first run_once segfaulted inside
+   * EpollEventPoll::poll → DownloadEngine::run (reproduced by a user on
+   * Redmi Android 16 OS3.0.302.0). The root cause is libaria2 not really
+   * supporting "tear down one session, immediately build another in the
+   * same libraryInit lifetime": SocketCore / AsyncNameResolver / SSL
+   * static state retain pointers into the prior session and the prior
+   * worker isolate's (now-destroyed) NativeCallable trampoline. Cleanly
+   * disarming our own bookkeeping (g_cb etc.) is not enough — libaria2's
+   * own globals are the dangling references.
    *
-   * On Android the Application process can long outlive the Flutter engine
-   * + Dart isolate that created the previous session: the KeepAlive
-   * foreground service ([Aria2KeepAliveService]) holds the process alive
-   * while the Activity / FlutterEngine / worker isolate are torn down by
-   * the system (memory pressure, long idle, configuration changes). When
-   * the user re-enters via app icon or notification, libaria2.so is still
-   * mapped in the process and our singleton bookkeeping (g_session, g_cb,
-   * ...) still points at the dead isolate's session — there is no surviving
-   * caller and the registered event callback dereferences a NativeCallable
-   * trampoline that has already been destroyed.
+   * After the Activity / Service lifecycle was tightened so the entire
+   * Application process is killed on Activity onDestroy / Service
+   * onTaskRemoved (see MainActivity.onDestroy +
+   * Aria2KeepAliveService.onTaskRemoved), this branch should never be
+   * reachable in normal usage. We keep it as a defensive last resort:
+   * if we still observe a stranded session, call _exit(0) so Android
+   * relaunches the process from a clean state (the foreground service
+   * is START_STICKY and will be restarted shortly after; the user sees
+   * the launch UI flash once, far better than a native segfault).
    *
-   * Without this reclaim, sessionNew would fail with
-   * ARIA2_FFI_ERR_ALREADY_INITIALIZED on every cold launch from the
-   * notification or icon, the Dart side surfaces it as "libaria2 启动失败"
-   * (see worker.dart -> bootstrap error path), the retry loop in
-   * aria2DaemonProvider runs three times all hitting the same stale state,
-   * and the daemon never reaches `ready` again.
-   *
-   * Disarm the dangling event callback under the lock first so any stray
-   * event dispatched while sessionFinal is still draining cannot
-   * dereference the dead trampoline. Then release the lock before calling
-   * sessionFinal — libaria2's shutdown loop briefly runs synchronous tasks
-   * that may invoke trampoline_event_cb (which itself takes g_mu), so
-   * holding the lock across sessionFinal would deadlock. */
-  aria2::Session *stale = nullptr;
+   * Using _exit (not exit) skips C++ static dtors — which is exactly
+   * what we want, since those dtors are the very globals that are
+   * already in a corrupt state. */
   {
     std::lock_guard<std::mutex> lock(g_mu);
     if (g_session != nullptr) {
       g_cb = nullptr;
       g_cb_user_data = nullptr;
       g_cb_handle = 0;
-      stale = g_session;
-      g_session = nullptr;
-      g_handle = 0;
+      _exit(0);
     }
-  }
-  if (stale != nullptr) {
-    aria2::sessionFinal(stale);
   }
 
   std::lock_guard<std::mutex> lock(g_mu);

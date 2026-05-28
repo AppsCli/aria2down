@@ -142,6 +142,34 @@ class MainActivity : FlutterActivity() {
         handleControlIntent(intent)
     }
 
+    override fun onDestroy() {
+        // Activity 真的被销毁时（manifest 里 configChanges 已经吞掉所有
+        // 配置变化，所以 onDestroy 走到这里几乎肯定是用户主动退出 / 系统
+        // 强制回收）必须把前台服务一起停掉、让整个 Application 进程退出。
+        //
+        // 不这样做的后果：Aria2KeepAliveService 是前台服务、START_STICKY，
+        // FlutterEngine + DartVM + aria2 worker isolate 销毁后它仍然会
+        // 让 Application 进程保留在内存里；但 libaria2 进程级单例
+        // (g_session、g_library_inited、注册到 c-ares / OpenSSL 的全局
+        // 回调、bittorrent extension 持有的 NativeCallable trampoline 等)
+        // 已经成了孤儿——下次用户从通知 / 图标重进时，aria2_ffi_session_new
+        // 走 stranded 自接管路径在 libaria2 multi-session-per-libraryInit
+        // 路径上不稳，会在新 session 第一次跑 epoll 时触发原生 segfault
+        // (用户在 Redmi Android 16 OS3.0.302.0 复现到
+        //  #00 EpollEventPoll::poll +380 → DownloadEngine::run +188 →
+        //  aria2_ffi_run_once +160；详见 CHANGELOG)。
+        //
+        // 这里"保活语义"已经在 worker isolate 跟随 root isolate 销毁的
+        // 瞬间被打破了——前台服务再活着只是通知栏上的 illusion，aria2
+        // 实际并未在跑。删掉这个 illusion 反而让生命周期一致、避免 crash。
+        val changingConfig = isChangingConfigurations
+        stopService(Intent(this, Aria2KeepAliveService::class.java))
+        super.onDestroy()
+        if (!changingConfig) {
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }
+    }
+
     private fun handleControlIntent(intent: Intent?) {
         val action = intent?.action ?: return
         val control = when (action) {
