@@ -4,6 +4,44 @@
 
 ## [Unreleased]
 
+### 修复（Android：HTTPS 握手报 `SSL/TLS handshake failure: unable to get local issuer certificate`，OpenSSL 不识别 Android 系统 CA）
+
+用户反馈："拉了上一轮 `SSL initialization failed:` 修复后的 prebuilt 重新打包，初始化不再失败了，但 HTTPS 下载握手期间报 `SSL/TLS handshake failure: unable to get local issuer certificate`。"
+
+`unable to get local issuer certificate` 是 OpenSSL 标准的证书链验证错误：握手期间服务器发回的证书链能解析，但 OpenSSL 找不到颁发它的根 CA，所以拒绝信任。aria2 在 `--check-certificate=true`（默认开启）时会调 [`OpenSSLTLSContext::addSystemTrustedCACerts`](third_party/aria2/src/LibsslTLSContext.cc) 加载系统 CA，上游实现走 `SSL_CTX_set_default_verify_paths(sslCtx_)`——这查找的是 OpenSSL **编译时**烤进 libcrypto.a 的 `OPENSSLDIR/certs/`。
+
+跑 `strings packages/aria2_native/prebuilt/android/arm64-v8a/deps/libcrypto.a | grep OPENSSLDIR` 看到：
+
+```
+OPENSSLDIR: "/Users/iotserv/git/aria2down/build/libaria2/android-native/arm64-v8a/install/ssl"
+```
+
+也就是交叉编译机（macOS）的本地路径——Android 设备上根本不存在。`SSL_CTX_set_default_verify_paths` 加载零个根 CA，trust store 实际是空的，任何公网 HTTPS 链路都通不过验证。
+
+Android **本身**有完整的系统 CA：
+
+| 路径 | 适用版本 | 说明 |
+| --- | --- | --- |
+| `/apex/com.android.conscrypt/cacerts/` | Android 14 / API 34+ | Conscrypt APEX 模块下的真实存储位置 |
+| `/system/etc/security/cacerts/` | Android 6+ / API 23+ | 通用路径；API 34+ 上是符号链接到 conscrypt APEX |
+
+两条都是 hash-named PEM 目录（文件名形如 `00673b5b.0`、`a3f1333d.0`），格式上 OpenSSL `SSL_CTX_load_verify_locations(ctx, NULL, dir_path)` 直接可识别。
+
+**修复**：[`patches/third_party-aria2/android-openssl-drbg-and-ssl-guards.patch`](patches/third_party-aria2/android-openssl-drbg-and-ssl-guards.patch) 给 `OpenSSLTLSContext::addSystemTrustedCACerts` 加 `__ANDROID__` 分支：按上表顺序尝试 `SSL_CTX_load_verify_locations(sslCtx_, nullptr, *p)`，命中第一条就返回 true，并经 `__android_log_print` + `A2_LOG_INFO` 上报具体使用的目录（`adb logcat -s aria2down` 能看到 `Loaded Android system CA dir: /apex/com.android.conscrypt/cacerts`）。每次 `SSL_CTX_load_verify_locations` 失败时立刻 `ERR_clear_error()` 清掉 error queue，避免污染下一条路径或后续 `SSL_get_error`。两条都不可达时仍 fallback 到原 `SSL_CTX_set_default_verify_paths`（保留上游语义），并各级日志都有提示。
+
+不进入此路径的两种情况保持原语义：
+
+- 用户显式 `--ca-certificate=<file>` → 走 `addTrustedCACertFile`（已工作正常）；
+- 用户显式 `--check-certificate=false` → 完全跳过验证（不推荐，但可作为应急手段）。
+
+**验证**：
+
+- `./scripts/build_libaria2_android_macos.sh` 全新重编三 ABI（NDK r27 / API 24）：libaria2.a 每个 ABI 比上一轮大约多 ~1 KB（对应新增 Android CA 分支代码），三 ABI 的 `strings libaria2.a` 各含两条字面量 `/apex/com.android.conscrypt/cacerts` + `/system/etc/security/cacerts` + 日志模板 `Loaded Android system CA dir: %s`。
+- `flutter build apk --debug --target-platform android-arm64` 链接通过；`lib/arm64-v8a/libaria2_native.so` 内同时含上述 3 个 CA 相关字面量 + 之前几轮补丁的所有字面量。
+- 子模块工作树 clean（脚本 trap 起效）。
+
+**用户后续操作**：拉到此 commit → 重跑 `./scripts/build_libaria2_android_macos.sh`（OpenSSL/deps 缓存可保留，只 aria2 重链接，约 30 秒）→ `flutter clean && flutter run -d <android>`。HTTPS 下载应当可正常完成；设备上 `adb logcat -s aria2down` 应能看到一行 `Loaded Android system CA dir: /apex/com.android.conscrypt/cacerts` 或 `/system/etc/security/cacerts`。如仍失败请贴这条日志的下一行（fallback 警告）+ 报错完整信息。
+
 ### 修复（Android：HTTPS 下载报 `SSL initialization failed:`，OpenSSL 3.0 静态库 + DRBG 路径多重隐患）
 
 用户反馈："Android 上拿 commit `5daf895` 的 prebuilt 跑，HTTPS 下载报错 `SSL initialization failed:`。"

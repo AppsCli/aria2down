@@ -1,5 +1,5 @@
 diff --git a/src/LibsslTLSContext.cc b/src/LibsslTLSContext.cc
-index 2cf78323..e82ab613 100644
+index 2cf78323..b09a3be1 100644
 --- a/src/LibsslTLSContext.cc
 +++ b/src/LibsslTLSContext.cc
 @@ -41,12 +41,28 @@
@@ -58,7 +58,7 @@ index 2cf78323..e82ab613 100644
      return;
    }
  
-@@ -275,6 +307,13 @@ bool OpenSSLTLSContext::addP12CredentialFile(const std::string& p12file)
+@@ -275,6 +307,50 @@ bool OpenSSLTLSContext::addP12CredentialFile(const std::string& p12file)
  
  bool OpenSSLTLSContext::addSystemTrustedCACerts()
  {
@@ -69,6 +69,43 @@ index 2cf78323..e82ab613 100644
 +    A2_LOG_INFO("addSystemTrustedCACerts: SSL_CTX is null, skipping");
 +    return false;
 +  }
++#ifdef __ANDROID__
++  // aria2down patch (Android): OpenSSL 编译时 OPENSSLDIR 指向交叉编译机的
++  // 本地路径（macOS 上跑 scripts/build_libaria2_android_macos.sh 时生成的
++  // `<repo>/build/.../install/ssl`），Android 设备上不存在；
++  // SSL_CTX_set_default_verify_paths 因此**加载不到任何根 CA**，所有
++  // HTTPS 握手会报 "unable to get local issuer certificate"。
++  //
++  // 这里**先尝试**显式加载 Android 系统 CA 目录。各 Android 版本路径不同，
++  // 按通用性递减顺序尝试，命中第一条就视为成功；命中任何一条已经能验证
++  // 公网 CA 签发的证书（系统 CA 全集）。如果用户用 `--ca-certificate=<file>`
++  // 自定义 CA 走 addTrustedCACertFile / addTrustedCACertDir 路径，不进这里。
++  //   - /apex/com.android.conscrypt/cacerts/   Android 14 / API 34+
++  //     Conscrypt APEX 提供，系统 CA 真实存放点
++  //   - /system/etc/security/cacerts/          Android 6+ / API 23+ 通用
++  //     在 API 34+ 是符号链接到 conscrypt APEX
++  static const char* const kAndroidCADirs[] = {
++      "/apex/com.android.conscrypt/cacerts",
++      "/system/etc/security/cacerts",
++      nullptr,
++  };
++  for (const char* const* p = kAndroidCADirs; *p != nullptr; ++p) {
++    if (SSL_CTX_load_verify_locations(sslCtx_, nullptr, *p) == 1) {
++      __android_log_print(ANDROID_LOG_INFO, "aria2down",
++                          "Loaded Android system CA dir: %s", *p);
++      A2_LOG_INFO(fmt("Loaded Android system CA dir: %s", *p));
++      return true;
++    }
++    // SSL_CTX_load_verify_locations 失败会把错误推进 error queue，
++    // 清掉防止干扰后续路径或 SSL_get_error。
++    ERR_clear_error();
++  }
++  __android_log_print(ANDROID_LOG_WARN, "aria2down",
++                      "No Android system CA dir reachable; falling back to "
++                      "OpenSSL default verify paths (likely empty).");
++  A2_LOG_INFO("No Android system CA dir reachable; falling back to "
++              "OpenSSL default verify paths");
++#endif
    if (SSL_CTX_set_default_verify_paths(sslCtx_) != 1) {
      A2_LOG_INFO(fmt(MSG_LOADING_SYSTEM_TRUSTED_CA_CERTS_FAILED,
                      ERR_error_string(ERR_get_error(), nullptr)));
