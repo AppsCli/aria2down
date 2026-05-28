@@ -311,7 +311,7 @@
       "path": {"type": "String"}
     }
   },
-  "settingsImportApplied": "Settings loaded. Tap Save to persist, or edit first.",
+  "settingsImportApplied": "Settings imported and applied.",
   "settingsImportFailed": "Import failed: {error}",
   "@settingsImportFailed": {
     "placeholders": {
@@ -363,9 +363,11 @@
   "aboutTitle": "About Aria2Down",
   "aboutOpenDetail": "Version, license, and links",
   "aboutPoweredBy": "Download engine",
+  "aboutProjectRepo": "Project repository",
+  "aboutProjectRepoHint": "Open source on GitHub – contributions and issue reports are welcome.",
   "aboutLicense": "License",
-  "aboutLicenseBody": "Released under GPLv2+, compatible with aria2.",
-  "aboutLicenseLink": "GNU GPLv2 full text",
+  "aboutLicenseBody": "Released under the GNU GPL-2.0 license, the same license as aria2.",
+  "aboutLicenseLink": "GNU GPL-2.0 full text",
   "platformHintMessage": "Downloads may pause when the app is in the background. Keep the app open or use Remote RPC to a server that stays online.",
   "platformHintOpenSettings": "Open settings",
   "platformHintDismiss": "Don't show again",

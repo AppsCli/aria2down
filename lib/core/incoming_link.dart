@@ -92,12 +92,18 @@ IncomingLinkPayload parseIncomingLink(Uri? uri, {String? text}) {
         fileName: name,
       );
     }
-    // Android content:// 经常没有扩展名，留给调用方再处理。
-    return IncomingFile(
-      uri: uri.toString(),
-      kind: IncomingFileKind.torrent,
-      fileName: name.isEmpty ? null : name,
-    );
+    // Android `content://` 经常没有扩展名（比如 SAF 下发的内容 URI），需要
+    // 兜底按 torrent 处理；其它平台（macOS Finder / Linux xdg-open / Windows
+    // 文件关联）的 `file://` 一定有扩展名，未知扩展名直接回退 Unknown，
+    // 避免把任意文件当成种子盲投到 aria2.addTorrent。
+    if (lower == 'content') {
+      return IncomingFile(
+        uri: uri.toString(),
+        kind: IncomingFileKind.torrent,
+        fileName: name.isEmpty ? null : name,
+      );
+    }
+    return IncomingUnknown(uri.toString());
   }
 
   // 其它 scheme 兜底：当作文本提取一次。

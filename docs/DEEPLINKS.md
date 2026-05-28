@@ -95,10 +95,11 @@ Dart 辅助函数：
 - `LSHandlerRank=Alternate`，不强制成为默认。
 - `LSSupportsOpeningDocumentsInPlace=true` + `UIFileSharingEnabled=true`：允许「文件」App 直接把 `.torrent` 用 aria2down 打开（in-place），并让 aria2down 沙盒目录出现在「文件」App 的「我的 iPhone」分组中，便于在第三方下载客户端之间转移种子文件。
 
-### macOS (`macos/Runner/Info.plist`)
+### macOS (`macos/Runner/Info.plist` + `AppDelegate.swift`)
 
 - 与 iOS 同结构的 `CFBundleURLTypes` / `CFBundleDocumentTypes` / `UTImportedTypeDeclarations`。
 - `app_sandbox=true` 仍生效；唤起字符串通过 Apple Event 投递，无需额外 entitlements。
+- **`AppDelegate.swift`**：重写 `application(_:open urls:)` 把 Finder 双击 / 「打开方式」投递的 `file://` URL 注入到 `AppLinks.shared.handleLink(...)`。app_links 的 macOS 插件只订阅了 `kAEGetURL`（自定义 URL Scheme），不接管 `kAEOpenDocuments`（文件打开），因此必须在 Runner 这一层手动桥接——否则 `.torrent` / `.metalink` 双击会被静默丢弃。改这块代码时务必保留 `super.application(application, open: urls)` 调用，让其它注册了 `handleOpenURLs:` 的插件代理仍能收到事件。
 
 ### Linux
 

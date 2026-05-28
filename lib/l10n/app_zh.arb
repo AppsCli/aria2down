@@ -311,7 +311,7 @@
       "path": {"type": "String"}
     }
   },
-  "settingsImportApplied": "已载入设置，请点击「保存」或继续编辑后保存。",
+  "settingsImportApplied": "已导入并即时应用设置。",
   "settingsImportFailed": "导入失败：{error}",
   "@settingsImportFailed": {
     "placeholders": {
@@ -363,9 +363,11 @@
   "aboutTitle": "关于 Aria2Down",
   "aboutOpenDetail": "版本、许可证与项目链接",
   "aboutPoweredBy": "下载引擎",
+  "aboutProjectRepo": "项目仓库",
+  "aboutProjectRepoHint": "本项目在 GitHub 上开源，欢迎反馈问题与提交贡献。",
   "aboutLicense": "许可证",
-  "aboutLicenseBody": "本项目基于 GPLv2+ 发布，与 aria2 许可证兼容。",
-  "aboutLicenseLink": "GNU GPLv2 全文",
+  "aboutLicenseBody": "本项目以 GNU GPL-2.0 协议发布，与 aria2 采用相同许可证。",
+  "aboutLicenseLink": "GNU GPL-2.0 全文",
   "platformHintMessage": "应用进入后台时本机下载可能暂停。可保持应用在前台，或在设置中改用「远程 RPC」连接常在线的服务器。",
   "platformHintOpenSettings": "打开设置",
   "platformHintDismiss": "不再提示",

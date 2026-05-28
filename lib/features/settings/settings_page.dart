@@ -10,15 +10,12 @@ import 'package:aria2down/l10n/app_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart' show kDefaultSeedColor;
-import '../../core/launch_at_startup_helper.dart';
 import '../../core/platform_hints.dart';
 import '../../core/rpc_error_message.dart';
 import '../../core/app_deep_link.dart';
 import '../../core/remote_rpc_probe.dart';
 import '../../data/app_settings.dart';
 import '../../data/settings_export.dart';
-import '../../data/settings_repository.dart';
-import '../../desktop/desktop_shell.dart';
 import '../../providers/app_settings_provider.dart';
 import '../../providers/aria2_daemon_provider.dart';
 import '../../providers/connection_info_provider.dart'
@@ -28,6 +25,16 @@ import '../about/about_page.dart';
 import 'aria2_global_options_page.dart';
 import 'aria2_log_page.dart';
 
+/// 设置页：所有控件**改即生效**，没有显式「保存」按钮。
+///
+/// - 开关 / SegmentedButton / Dropdown / 主题色 / 下载目录选择器：每次点击直接
+///   写入 [appSettingsProvider]（先发布到内存 `state` → UI 立刻响应，再异步
+///   持久化）。
+/// - 文本框（远程端点 / Secret / 并发数 / 限速等）：用 [FocusNode] 监听失焦，
+///   或按回车 `onSubmitted` 时一次性提交，避免每按一个键就重启 aria2 / 重连
+///   远程 RPC。
+/// - 导入 / 重置走 [AppSettingsNotifier.update] / [AppSettingsNotifier.resetToDefaults]
+///   后再同步更新本地文本控制器，让用户即刻看到变化。
 class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
 
@@ -36,7 +43,10 @@ class SettingsPage extends ConsumerWidget {
     return ref
         .watch(appSettingsProvider)
         .when(
-          data: (s) => _SettingsForm(key: ValueKey(s), initial: s, ref: ref),
+          // 不再使用 `key: ValueKey(s)`：那样会让每次 notifier.update() 把
+          // 整个 _SettingsForm 销毁重建，破坏 TextField 焦点 / 光标位置。
+          // 现在表单常驻，靠局部 watch + 文本控制器自我同步。
+          data: (_) => const _SettingsForm(),
           loading: () =>
               const Scaffold(body: Center(child: CircularProgressIndicator())),
           error: (e, _) => Scaffold(body: Center(child: Text('$e'))),
@@ -44,14 +54,11 @@ class SettingsPage extends ConsumerWidget {
   }
 }
 
-class _SettingsForm extends StatefulWidget {
-  const _SettingsForm({super.key, required this.initial, required this.ref});
-
-  final AppSettings initial;
-  final WidgetRef ref;
+class _SettingsForm extends ConsumerStatefulWidget {
+  const _SettingsForm();
 
   @override
-  State<_SettingsForm> createState() => _SettingsFormState();
+  ConsumerState<_SettingsForm> createState() => _SettingsFormState();
 }
 
 String _engineLabel(AppLocalizations l10n, ConnectionInfo c) {
@@ -186,7 +193,8 @@ class _ConnectionStatusCard extends ConsumerWidget {
   }
 }
 
-class _SettingsFormState extends State<_SettingsForm> {
+class _SettingsFormState extends ConsumerState<_SettingsForm> {
+  // --- 文本控制器（含远程端点 / Secret + 4 个调优数值） ---
   late final TextEditingController _remoteEndpointCtrl;
   late final TextEditingController _remoteSecretCtrl;
   late final TextEditingController _maxConcurrentCtrl;
@@ -194,17 +202,14 @@ class _SettingsFormState extends State<_SettingsForm> {
   late final TextEditingController _dlLimitCtrl;
   late final TextEditingController _ulLimitCtrl;
 
-  late ConnectionMode _connectionMode;
-  late AppThemePreference _theme;
-  int? _seedColorArgb;
-  late AppLocalePreference _locale;
-  late bool _closeToTray;
-  late bool _minimizeToTray;
-  late bool _launchAtStartup;
-  late bool _startMinimized;
-  late bool _keepAliveInBackground;
-  String? _downloadDir;
-  late bool _askDownloadDirEachTime;
+  // --- 焦点节点：失焦时把当前文本提交到 [appSettingsProvider] ---
+  late final FocusNode _remoteEndpointFocus;
+  late final FocusNode _remoteSecretFocus;
+  late final FocusNode _maxConcurrentFocus;
+  late final FocusNode _maxConnFocus;
+  late final FocusNode _dlLimitFocus;
+  late final FocusNode _ulLimitFocus;
+
   bool _testingRemote = false;
 
   bool get _isDesktop {
@@ -215,8 +220,9 @@ class _SettingsFormState extends State<_SettingsForm> {
   @override
   void initState() {
     super.initState();
-    final s = widget.initial;
-    _connectionMode = kIsWeb ? ConnectionMode.remote : s.connectionMode;
+    // 首次 build 之前，先从 provider 当前 value 里抓初值——SettingsPage 在
+    // `.when(data:)` 分支内创建本表单，所以 `.valueOrNull` 一定非空。
+    final s = ref.read(appSettingsProvider).valueOrNull ?? const AppSettings();
     _remoteEndpointCtrl = TextEditingController(
       text: s.remoteRpcEndpoint ?? '127.0.0.1:6800',
     );
@@ -229,16 +235,15 @@ class _SettingsFormState extends State<_SettingsForm> {
     );
     _dlLimitCtrl = TextEditingController(text: s.globalDownloadLimit ?? '');
     _ulLimitCtrl = TextEditingController(text: s.globalUploadLimit ?? '');
-    _theme = s.theme;
-    _seedColorArgb = s.seedColorArgb;
-    _locale = s.locale;
-    _closeToTray = s.closeToTray;
-    _minimizeToTray = s.minimizeToTray;
-    _launchAtStartup = s.launchAtStartup;
-    _startMinimized = s.startMinimized;
-    _keepAliveInBackground = s.keepAliveInBackground;
-    _downloadDir = s.downloadDirectoryOverride;
-    _askDownloadDirEachTime = s.askDownloadDirEachTime;
+
+    // 失焦提交：用户 Tab / 点别处 / 关键盘时把当前文本一次性写到设置。
+    // 比每个 onChanged 都重启 aria2 友好得多。
+    _remoteEndpointFocus = FocusNode()..addListener(_onTextFocusChanged);
+    _remoteSecretFocus = FocusNode()..addListener(_onTextFocusChanged);
+    _maxConcurrentFocus = FocusNode()..addListener(_onTextFocusChanged);
+    _maxConnFocus = FocusNode()..addListener(_onTextFocusChanged);
+    _dlLimitFocus = FocusNode()..addListener(_onTextFocusChanged);
+    _ulLimitFocus = FocusNode()..addListener(_onTextFocusChanged);
   }
 
   @override
@@ -249,47 +254,103 @@ class _SettingsFormState extends State<_SettingsForm> {
     _maxConnCtrl.dispose();
     _dlLimitCtrl.dispose();
     _ulLimitCtrl.dispose();
+    _remoteEndpointFocus.dispose();
+    _remoteSecretFocus.dispose();
+    _maxConcurrentFocus.dispose();
+    _maxConnFocus.dispose();
+    _dlLimitFocus.dispose();
+    _ulLimitFocus.dispose();
     super.dispose();
   }
 
-  AppSettings _buildSettings() {
-    int? parsePositiveInt(String raw) {
-      final t = raw.trim();
-      if (t.isEmpty) return null;
-      final n = int.tryParse(t);
-      if (n == null || n < 1) return null;
-      return n;
+  /// 任意文本框失焦时统一调一次——逐字段对比，把改动一并写盘。
+  void _onTextFocusChanged() {
+    if (_anyTextFieldFocused) return;
+    _commitTextFields();
+  }
+
+  bool get _anyTextFieldFocused =>
+      _remoteEndpointFocus.hasFocus ||
+      _remoteSecretFocus.hasFocus ||
+      _maxConcurrentFocus.hasFocus ||
+      _maxConnFocus.hasFocus ||
+      _dlLimitFocus.hasFocus ||
+      _ulLimitFocus.hasFocus;
+
+  /// 把所有文本框当前值合并到 [appSettingsProvider]——文本字段是「提交时」
+  /// 同步，逐字段对比避免无谓重启。
+  Future<void> _commitTextFields() async {
+    final current = ref.read(appSettingsProvider).valueOrNull;
+    if (current == null) return;
+    final ep = _remoteEndpointCtrl.text.trim();
+    final sec = _remoteSecretCtrl.text.trim();
+    final mc = _parsePositiveInt(_maxConcurrentCtrl.text);
+    final mcps = _parsePositiveInt(_maxConnCtrl.text);
+    final dl = _dlLimitCtrl.text.trim();
+    final ul = _ulLimitCtrl.text.trim();
+
+    final next = AppSettings(
+      connectionMode: current.connectionMode,
+      remoteRpcEndpoint: current.connectionMode == ConnectionMode.remote
+          ? (ep.isEmpty ? null : ep)
+          : current.remoteRpcEndpoint,
+      remoteRpcSecret: current.connectionMode == ConnectionMode.remote
+          ? (sec.isEmpty ? null : sec)
+          : current.remoteRpcSecret,
+      downloadDirectoryOverride: current.downloadDirectoryOverride,
+      askDownloadDirEachTime: current.askDownloadDirEachTime,
+      theme: current.theme,
+      seedColorArgb: current.seedColorArgb,
+      locale: current.locale,
+      closeToTray: current.closeToTray,
+      minimizeToTray: current.minimizeToTray,
+      launchAtStartup: current.launchAtStartup,
+      startMinimized: current.startMinimized,
+      keepAliveInBackground: current.keepAliveInBackground,
+      maxConcurrentDownloads: mc,
+      maxConnectionPerServer: mcps,
+      globalDownloadLimit: dl.isEmpty ? null : dl,
+      globalUploadLimit: ul.isEmpty ? null : ul,
+    );
+    await ref.read(appSettingsProvider.notifier).set(next);
+  }
+
+  static int? _parsePositiveInt(String raw) {
+    final t = raw.trim();
+    if (t.isEmpty) return null;
+    final n = int.tryParse(t);
+    if (n == null || n < 1) return null;
+    return n;
+  }
+
+  /// 把外部对 [appSettingsProvider] 的更改（导入 / 重置 / 其它页面写入）同步
+  /// 回本表单的文本控制器；只在控件未持有焦点 + 实际差异时改写，避免抢用户
+  /// 正在输入的光标。
+  void _syncControllersFrom(AppSettings s) {
+    void sync(TextEditingController c, FocusNode f, String desired) {
+      if (f.hasFocus) return;
+      if (c.text == desired) return;
+      c.text = desired;
     }
 
-    return AppSettings(
-      connectionMode: kIsWeb ? ConnectionMode.remote : _connectionMode,
-      remoteRpcEndpoint: _connectionMode == ConnectionMode.remote
-          ? _remoteEndpointCtrl.text.trim()
-          : null,
-      remoteRpcSecret: _connectionMode == ConnectionMode.remote
-          ? _remoteSecretCtrl.text.trim()
-          : null,
-      downloadDirectoryOverride: _downloadDir,
-      askDownloadDirEachTime: _askDownloadDirEachTime,
-      theme: _theme,
-      // _seedColorArgb == null 即"跟随品牌默认"，构造时直接传 null。
-      // copyWith 路径的 `clearSeedColor` 在此处用不到。
-      seedColorArgb: _seedColorArgb,
-      locale: _locale,
-      closeToTray: _closeToTray,
-      minimizeToTray: _minimizeToTray,
-      launchAtStartup: _launchAtStartup,
-      startMinimized: _startMinimized,
-      keepAliveInBackground: _keepAliveInBackground,
-      maxConcurrentDownloads: parsePositiveInt(_maxConcurrentCtrl.text),
-      maxConnectionPerServer: parsePositiveInt(_maxConnCtrl.text),
-      globalDownloadLimit: _dlLimitCtrl.text.trim().isEmpty
-          ? null
-          : _dlLimitCtrl.text.trim(),
-      globalUploadLimit: _ulLimitCtrl.text.trim().isEmpty
-          ? null
-          : _ulLimitCtrl.text.trim(),
+    sync(
+      _remoteEndpointCtrl,
+      _remoteEndpointFocus,
+      s.remoteRpcEndpoint ?? '127.0.0.1:6800',
     );
+    sync(_remoteSecretCtrl, _remoteSecretFocus, s.remoteRpcSecret ?? '');
+    sync(
+      _maxConcurrentCtrl,
+      _maxConcurrentFocus,
+      s.maxConcurrentDownloads?.toString() ?? '',
+    );
+    sync(
+      _maxConnCtrl,
+      _maxConnFocus,
+      s.maxConnectionPerServer?.toString() ?? '',
+    );
+    sync(_dlLimitCtrl, _dlLimitFocus, s.globalDownloadLimit ?? '');
+    sync(_ulLimitCtrl, _ulLimitFocus, s.globalUploadLimit ?? '');
   }
 
   /// 弹一个对话框让用户输入十六进制颜色（`#RRGGBB` 或 `#AARRGGBB`）。
@@ -298,11 +359,13 @@ class _SettingsFormState extends State<_SettingsForm> {
   /// 的；个别强诉求（"我想要公司品牌色"）通过 hex 文本直接输入即可，键盘
   /// 操作也比拖色块拾色精确。返回 null 表示用户取消或输入无效。
   Future<void> _pickCustomSeedColor(AppLocalizations l10n) async {
+    final current = ref.read(appSettingsProvider).valueOrNull;
+    final currentArgb = current?.seedColorArgb;
     // 用户输入习惯用 #RRGGBB，把默认 0xFF Alpha 隐去更短。如果当前色已经
     // 是非 0xFF Alpha（来自备份导入），保持 8 位 hex 让 round-trip 一致。
     String initial = '';
-    if (_seedColorArgb != null) {
-      final hex = _seedColorArgb!.toRadixString(16).padLeft(8, '0');
+    if (currentArgb != null) {
+      final hex = currentArgb.toRadixString(16).padLeft(8, '0');
       initial = hex.startsWith('ff') ? hex.substring(2) : hex;
     }
     final ctrl = TextEditingController(text: initial);
@@ -358,7 +421,9 @@ class _SettingsFormState extends State<_SettingsForm> {
     );
     ctrl.dispose();
     if (argb != null && mounted) {
-      setState(() => _seedColorArgb = argb);
+      await ref
+          .read(appSettingsProvider.notifier)
+          .mutate((s) => s.copyWith(seedColorArgb: argb));
     }
   }
 
@@ -378,7 +443,7 @@ class _SettingsFormState extends State<_SettingsForm> {
         confirmButtonText: l10n.downloadDirectoryPick,
       );
       if (path != null && mounted) {
-        setState(() => _downloadDir = path);
+        await _applyDownloadDir(path);
       }
     } catch (_) {
       if (mounted) {
@@ -389,8 +454,34 @@ class _SettingsFormState extends State<_SettingsForm> {
     }
   }
 
+  /// 切换 / 清空默认下载目录：先持久化设置，再尝试用 RPC `changeGlobalOption`
+  /// 把 `dir` 推给正在跑的 daemon（失败安静吞掉——下次启动还会从 settings
+  /// 重新读）。
+  Future<void> _applyDownloadDir(String? path) async {
+    final normalized = path?.trim().isNotEmpty == true ? path : null;
+    await ref
+        .read(appSettingsProvider.notifier)
+        .mutate(
+          (s) => s.copyWith(
+            downloadDirectoryOverride: normalized,
+            clearDownloadDirectoryOverride: normalized == null,
+          ),
+        );
+    if (normalized == null) return;
+    final d = ref.read(aria2DaemonProvider).valueOrNull;
+    if (d == null) return;
+    try {
+      await d.client.changeGlobalOption({'dir': normalized});
+    } catch (_) {
+      // 下次启动仍会从 aria2.conf 读取
+    }
+  }
+
   Future<void> _testRemoteConnection(AppLocalizations l10n) async {
     setState(() => _testingRemote = true);
+    // 测连前把端点 + secret 先 commit 到 settings，让 probeRemoteRpc 拿到的
+    // 输入和用户在输入框里看到的一致。
+    await _commitTextFields();
     final result = await probeRemoteRpc(
       endpointRaw: _remoteEndpointCtrl.text.trim(),
       secret: _remoteSecretCtrl.text.trim(),
@@ -451,12 +542,8 @@ class _SettingsFormState extends State<_SettingsForm> {
   Future<void> _openAria2Log(AppLocalizations l10n) async {
     try {
       // LibraryDaemon 启动时把日志写到 stateRoot/state/aria2.log 并通过
-      // `Aria2Daemon.logFilePath` 暴露。ADR-010 之前这里读的是
-      // `LocalDaemonPaths.logFilePath()`——同样的物理路径，但要先实例化一
-      // 个 `LocalDaemonPaths` 静态查询；现在直接走 provider 拿到当前在跑的
-      // daemon 路径，避免 race（path_provider 解析可能与 daemon 实际写入
-      // 的路径不一致）。
-      final daemon = widget.ref.read(aria2DaemonProvider).value;
+      // `Aria2Daemon.logFilePath` 暴露。
+      final daemon = ref.read(aria2DaemonProvider).value;
       final path = daemon?.logFilePath;
       if (path == null) {
         if (mounted) {
@@ -498,11 +585,11 @@ class _SettingsFormState extends State<_SettingsForm> {
       ),
     );
     if (ok != true || !mounted) return;
-    final d = widget.ref.read(aria2DaemonProvider).value;
+    final d = ref.read(aria2DaemonProvider).value;
     if (d == null) return;
     try {
       await d.client.shutdown(force: false);
-      widget.ref.invalidate(aria2DaemonProvider);
+      ref.invalidate(aria2DaemonProvider);
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -536,9 +623,11 @@ class _SettingsFormState extends State<_SettingsForm> {
       ),
     );
     if (ok != true || !mounted) return;
-    await SettingsRepository.resetToDefaults();
-    widget.ref.invalidate(appSettingsProvider);
-    widget.ref.invalidate(aria2DaemonProvider);
+    await ref.read(appSettingsProvider.notifier).resetToDefaults();
+    ref.invalidate(aria2DaemonProvider);
+    // 重置后同步文本控制器到默认值——`_syncControllersFrom` 在 build 里也会
+    // 被调一次，这里提前一次让用户即刻看到清空效果。
+    _syncControllersFrom(const AppSettings());
     if (mounted) {
       ScaffoldMessenger.of(
         context,
@@ -547,7 +636,7 @@ class _SettingsFormState extends State<_SettingsForm> {
   }
 
   Future<void> _applyRuntimeLimits(AppLocalizations l10n) async {
-    final d = widget.ref.read(aria2DaemonProvider).value;
+    final d = ref.read(aria2DaemonProvider).value;
     if (d == null) return;
     final opts = <String, String>{};
     final dl = _dlLimitCtrl.text.trim();
@@ -571,6 +660,9 @@ class _SettingsFormState extends State<_SettingsForm> {
       return;
     }
     try {
+      // 先把输入框里的值提交到 settings（下次重启 daemon 也能保留），再
+      // 通过 RPC 推给正在跑的 aria2。
+      await _commitTextFields();
       await d.client.changeGlobalOption(opts);
       if (mounted) {
         ScaffoldMessenger.of(
@@ -586,39 +678,12 @@ class _SettingsFormState extends State<_SettingsForm> {
     }
   }
 
-  Future<void> _save(AppLocalizations l10n) async {
-    final next = _buildSettings();
-    await SettingsRepository.save(next);
-    applyDesktopShellBehavior(next);
-    await applyLaunchAtStartup(next);
-    final d = widget.ref.read(aria2DaemonProvider).value;
-    final dir = next.downloadDirectoryOverride?.trim();
-    if (d != null && dir != null && dir.isNotEmpty) {
-      try {
-        await d.client.changeGlobalOption({'dir': dir});
-      } catch (_) {
-        /* 下次启动仍会从 aria2.conf 读取 */
-      }
-    }
-    // 先把 snackbar 派给当前 ScaffoldMessenger（即便后续 daemon invalidate
-    // 让 MaterialApp 整棵被换掉，旧 ScaffoldMessenger 也已经接到了消息），
-    // 再触发 provider 失效。否则当 SettingsPage 从 DaemonErrorScreen 上面
-    // 被 push 出来时，invalidate(aria2DaemonProvider) 会让上层 MaterialApp
-    // 被替换、SettingsPage 一并 unmount，`if (mounted)` 直接 false → 用户
-    // 看不到任何「已保存」反馈。
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l10n.snackSaved)));
-    }
-    widget.ref.invalidate(appSettingsProvider);
-    widget.ref.invalidate(aria2DaemonProvider);
-  }
-
   Future<void> _exportSettings(AppLocalizations l10n) async {
+    final current =
+        ref.read(appSettingsProvider).valueOrNull ?? const AppSettings();
     final json = const JsonEncoder.withIndent(
       '  ',
-    ).convert(SettingsExport.toJson(_buildSettings()));
+    ).convert(SettingsExport.toJson(current));
     if (_isDesktop) {
       try {
         final name =
@@ -667,27 +732,10 @@ class _SettingsFormState extends State<_SettingsForm> {
       final map = jsonDecode(text) as Map<String, dynamic>;
       final imported = SettingsExport.fromJson(map);
       if (!mounted) return;
-      setState(() {
-        _connectionMode = imported.connectionMode;
-        _remoteEndpointCtrl.text =
-            imported.remoteRpcEndpoint ?? '127.0.0.1:6800';
-        _remoteSecretCtrl.text = imported.remoteRpcSecret ?? '';
-        _downloadDir = imported.downloadDirectoryOverride;
-        _askDownloadDirEachTime = imported.askDownloadDirEachTime;
-        _theme = imported.theme;
-        _seedColorArgb = imported.seedColorArgb;
-        _locale = imported.locale;
-        _closeToTray = imported.closeToTray;
-        _minimizeToTray = imported.minimizeToTray;
-        _launchAtStartup = imported.launchAtStartup;
-        _startMinimized = imported.startMinimized;
-        _keepAliveInBackground = imported.keepAliveInBackground;
-        _maxConcurrentCtrl.text =
-            imported.maxConcurrentDownloads?.toString() ?? '';
-        _maxConnCtrl.text = imported.maxConnectionPerServer?.toString() ?? '';
-        _dlLimitCtrl.text = imported.globalDownloadLimit ?? '';
-        _ulLimitCtrl.text = imported.globalUploadLimit ?? '';
-      });
+      // 直接走 notifier 写入——`_syncControllersFrom` 在下一次 build 里会
+      // 把文本框拉到新值（前提：用户没正在编辑某个字段）。
+      await ref.read(appSettingsProvider.notifier).set(imported);
+      _syncControllersFrom(imported);
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -710,11 +758,24 @@ class _SettingsFormState extends State<_SettingsForm> {
     final t = Theme.of(context);
 
     final mobile = isMobilePlatform;
+    final settings =
+        ref.watch(appSettingsProvider).valueOrNull ?? const AppSettings();
+
+    // 文本控制器与设置同步：用户没在输入时把控件文本拉齐最新设置——支持
+    // 「导入 / 重置 / 其它页面修改了某个文本字段」的场景。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _syncControllersFrom(settings);
+    });
+
+    final connectionMode = kIsWeb
+        ? ConnectionMode.remote
+        : settings.connectionMode;
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.settingsTitle)),
       body: ListView(
-        padding: EdgeInsets.fromLTRB(16, 16, 16, mobile ? 96 : 16),
+        padding: EdgeInsets.fromLTRB(16, 16, 16, mobile ? 24 : 16),
         children: [
           if (mobile)
             Card(
@@ -766,9 +827,15 @@ class _SettingsFormState extends State<_SettingsForm> {
                   label: Text(l10n.connectionRemote),
                 ),
               ],
-              selected: {_connectionMode},
-              onSelectionChanged: (v) =>
-                  setState(() => _connectionMode = v.first),
+              selected: {connectionMode},
+              onSelectionChanged: (v) async {
+                // 切模式之前先把文本框的当前值提交，不然用户在 remote 输入了
+                // 但没失焦就切到 local，端点 / secret 会丢。
+                await _commitTextFields();
+                await ref
+                    .read(appSettingsProvider.notifier)
+                    .mutate((s) => s.copyWith(connectionMode: v.first));
+              },
             ),
           const _ConnectionStatusCard(),
           const _LibraryCapabilitiesWarning(),
@@ -777,7 +844,7 @@ class _SettingsFormState extends State<_SettingsForm> {
           // 输入框 + fallback switch」全部一并移除——子进程引擎与其 binary
           // staging 维护成本已经远高于收益。需要外部 aria2c 的用户改用
           // 「远程 RPC」连接模式。
-          if (_connectionMode == ConnectionMode.local && !kIsWeb) ...[
+          if (connectionMode == ConnectionMode.local && !kIsWeb) ...[
             const SizedBox(height: 16),
             Text(l10n.settingsEngine, style: t.textTheme.titleSmall),
             const SizedBox(height: 8),
@@ -788,10 +855,12 @@ class _SettingsFormState extends State<_SettingsForm> {
               subtitle: Text(l10n.engineLibraryDesc),
             ),
           ],
-          if (_connectionMode == ConnectionMode.remote) ...[
+          if (connectionMode == ConnectionMode.remote) ...[
             const SizedBox(height: 12),
             TextField(
               controller: _remoteEndpointCtrl,
+              focusNode: _remoteEndpointFocus,
+              onSubmitted: (_) => _commitTextFields(),
               decoration: InputDecoration(
                 labelText: l10n.remoteRpcEndpoint,
                 hintText: l10n.remoteRpcEndpointHint,
@@ -813,15 +882,19 @@ class _SettingsFormState extends State<_SettingsForm> {
                           ])
                   ActionChip(
                     label: Text(preset),
-                    onPressed: () =>
-                        setState(() => _remoteEndpointCtrl.text = preset),
+                    onPressed: () async {
+                      _remoteEndpointCtrl.text = preset;
+                      await _commitTextFields();
+                    },
                   ),
               ],
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _remoteSecretCtrl,
+              focusNode: _remoteSecretFocus,
               obscureText: true,
+              onSubmitted: (_) => _commitTextFields(),
               decoration: InputDecoration(
                 labelText: l10n.remoteRpcSecret,
                 border: const OutlineInputBorder(),
@@ -863,8 +936,12 @@ class _SettingsFormState extends State<_SettingsForm> {
                 label: Text(l10n.themeDark),
               ),
             ],
-            selected: {_theme},
-            onSelectionChanged: (v) => setState(() => _theme = v.first),
+            selected: {settings.theme},
+            onSelectionChanged: (v) async {
+              await ref
+                  .read(appSettingsProvider.notifier)
+                  .mutate((s) => s.copyWith(theme: v.first));
+            },
           ),
           const SizedBox(height: 20),
           // 主题色选择：默认 + 8 个预设色 + 自定义十六进制按钮。Material 3
@@ -880,8 +957,17 @@ class _SettingsFormState extends State<_SettingsForm> {
           ),
           const SizedBox(height: 12),
           _SeedColorPicker(
-            selectedArgb: _seedColorArgb,
-            onSelected: (argb) => setState(() => _seedColorArgb = argb),
+            selectedArgb: settings.seedColorArgb,
+            onSelected: (argb) async {
+              await ref
+                  .read(appSettingsProvider.notifier)
+                  .mutate(
+                    (s) => s.copyWith(
+                      seedColorArgb: argb,
+                      clearSeedColor: argb == null,
+                    ),
+                  );
+            },
             onPickCustom: _pickCustomSeedColor,
             l10n: l10n,
           ),
@@ -892,7 +978,7 @@ class _SettingsFormState extends State<_SettingsForm> {
           // 顶部分组 + 其他语言按本地命名（English / 简体中文 / 日本語…）
           // 排列，让用户能在不切到目标语言之前就识别选项。
           DropdownButtonFormField<AppLocalePreference>(
-            value: _locale,
+            value: settings.locale,
             isExpanded: true,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),
@@ -952,8 +1038,11 @@ class _SettingsFormState extends State<_SettingsForm> {
                 child: Text(l10n.langVietnamese),
               ),
             ],
-            onChanged: (v) {
-              if (v != null) setState(() => _locale = v);
+            onChanged: (v) async {
+              if (v == null) return;
+              await ref
+                  .read(appSettingsProvider.notifier)
+                  .mutate((s) => s.copyWith(locale: v));
             },
           ),
           const SizedBox(height: 24),
@@ -961,7 +1050,9 @@ class _SettingsFormState extends State<_SettingsForm> {
           const SizedBox(height: 8),
           TextField(
             controller: _maxConcurrentCtrl,
+            focusNode: _maxConcurrentFocus,
             keyboardType: TextInputType.number,
+            onSubmitted: (_) => _commitTextFields(),
             decoration: InputDecoration(
               labelText: l10n.maxConcurrentDownloads,
               hintText: l10n.settingsOptionalHint,
@@ -971,7 +1062,9 @@ class _SettingsFormState extends State<_SettingsForm> {
           const SizedBox(height: 8),
           TextField(
             controller: _maxConnCtrl,
+            focusNode: _maxConnFocus,
             keyboardType: TextInputType.number,
+            onSubmitted: (_) => _commitTextFields(),
             decoration: InputDecoration(
               labelText: l10n.maxConnectionPerServer,
               hintText: '16',
@@ -981,6 +1074,8 @@ class _SettingsFormState extends State<_SettingsForm> {
           const SizedBox(height: 8),
           TextField(
             controller: _dlLimitCtrl,
+            focusNode: _dlLimitFocus,
+            onSubmitted: (_) => _commitTextFields(),
             decoration: InputDecoration(
               labelText: l10n.globalDownloadLimit,
               hintText: l10n.speedLimitHint,
@@ -990,13 +1085,15 @@ class _SettingsFormState extends State<_SettingsForm> {
           const SizedBox(height: 8),
           TextField(
             controller: _ulLimitCtrl,
+            focusNode: _ulLimitFocus,
+            onSubmitted: (_) => _commitTextFields(),
             decoration: InputDecoration(
               labelText: l10n.globalUploadLimit,
               hintText: l10n.speedLimitHint,
               border: const OutlineInputBorder(),
             ),
           ),
-          if (_connectionMode == ConnectionMode.local)
+          if (connectionMode == ConnectionMode.local)
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(
@@ -1017,7 +1114,8 @@ class _SettingsFormState extends State<_SettingsForm> {
             leading: const Icon(Icons.folder_outlined),
             title: Text(l10n.downloadDirectory),
             subtitle: Text(
-              _downloadDir ?? '(${l10n.downloadDirectoryClear})',
+              settings.downloadDirectoryOverride ??
+                  '(${l10n.downloadDirectoryClear})',
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
             ),
@@ -1029,7 +1127,7 @@ class _SettingsFormState extends State<_SettingsForm> {
                   child: Text(l10n.downloadDirectoryPick),
                 ),
                 TextButton(
-                  onPressed: () => setState(() => _downloadDir = null),
+                  onPressed: () => _applyDownloadDir(null),
                   child: Text(l10n.downloadDirectoryClear),
                 ),
               ],
@@ -1044,8 +1142,12 @@ class _SettingsFormState extends State<_SettingsForm> {
             secondary: const Icon(Icons.help_outline),
             title: Text(l10n.askDownloadDirEachTimeTitle),
             subtitle: Text(l10n.askDownloadDirEachTimeBody),
-            value: _askDownloadDirEachTime,
-            onChanged: (v) => setState(() => _askDownloadDirEachTime = v),
+            value: settings.askDownloadDirEachTime,
+            onChanged: (v) async {
+              await ref
+                  .read(appSettingsProvider.notifier)
+                  .mutate((s) => s.copyWith(askDownloadDirEachTime: v));
+            },
           ),
           if (_isDesktop) ...[
             const SizedBox(height: 24),
@@ -1054,29 +1156,45 @@ class _SettingsFormState extends State<_SettingsForm> {
               contentPadding: EdgeInsets.zero,
               title: Text(l10n.closeToTray),
               subtitle: Text(l10n.closeToTrayDesc),
-              value: _closeToTray,
-              onChanged: (v) => setState(() => _closeToTray = v),
+              value: settings.closeToTray,
+              onChanged: (v) async {
+                await ref
+                    .read(appSettingsProvider.notifier)
+                    .mutate((s) => s.copyWith(closeToTray: v));
+              },
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(l10n.minimizeToTray),
               subtitle: Text(l10n.minimizeToTrayDesc),
-              value: _minimizeToTray,
-              onChanged: (v) => setState(() => _minimizeToTray = v),
+              value: settings.minimizeToTray,
+              onChanged: (v) async {
+                await ref
+                    .read(appSettingsProvider.notifier)
+                    .mutate((s) => s.copyWith(minimizeToTray: v));
+              },
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(l10n.launchAtStartup),
               subtitle: Text(l10n.launchAtStartupDesc),
-              value: _launchAtStartup,
-              onChanged: (v) => setState(() => _launchAtStartup = v),
+              value: settings.launchAtStartup,
+              onChanged: (v) async {
+                await ref
+                    .read(appSettingsProvider.notifier)
+                    .mutate((s) => s.copyWith(launchAtStartup: v));
+              },
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: Text(l10n.startMinimized),
               subtitle: Text(l10n.startMinimizedDesc),
-              value: _startMinimized,
-              onChanged: (v) => setState(() => _startMinimized = v),
+              value: settings.startMinimized,
+              onChanged: (v) async {
+                await ref
+                    .read(appSettingsProvider.notifier)
+                    .mutate((s) => s.copyWith(startMinimized: v));
+              },
             ),
           ],
           if (mobile) ...[
@@ -1085,8 +1203,12 @@ class _SettingsFormState extends State<_SettingsForm> {
               contentPadding: EdgeInsets.zero,
               title: Text(l10n.keepAliveInBackground),
               subtitle: Text(l10n.keepAliveInBackgroundDesc),
-              value: _keepAliveInBackground,
-              onChanged: (v) => setState(() => _keepAliveInBackground = v),
+              value: settings.keepAliveInBackground,
+              onChanged: (v) async {
+                await ref
+                    .read(appSettingsProvider.notifier)
+                    .mutate((s) => s.copyWith(keepAliveInBackground: v));
+              },
             ),
           ],
           const SizedBox(height: 24),
@@ -1108,7 +1230,7 @@ class _SettingsFormState extends State<_SettingsForm> {
               ),
             ],
           ),
-          if (_connectionMode == ConnectionMode.local && !kIsWeb) ...[
+          if (connectionMode == ConnectionMode.local && !kIsWeb) ...[
             const SizedBox(height: 24),
             Text(l10n.settingsDiagnostics, style: t.textTheme.titleSmall),
             ListTile(
@@ -1124,7 +1246,7 @@ class _SettingsFormState extends State<_SettingsForm> {
             // LibraryDaemon（FFI，无 HTTP 端口），所以这条仅在「远程 RPC」
             // 模式下才有意义——把用户已经配好的远程 endpoint+secret 直接
             // 整理成扩展可用的 JSON 形态。
-            if (_connectionMode == ConnectionMode.remote)
+            if (connectionMode == ConnectionMode.remote)
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.extension_outlined),
@@ -1165,10 +1287,6 @@ class _SettingsFormState extends State<_SettingsForm> {
             onPressed: () => _confirmResetSettings(l10n),
             child: Text(l10n.resetSettings),
           ),
-          if (!mobile) ...[
-            const SizedBox(height: 24),
-            FilledButton(onPressed: () => _save(l10n), child: Text(l10n.save)),
-          ],
           const SizedBox(height: 32),
           Text(l10n.about, style: t.textTheme.titleSmall),
           ListTile(
@@ -1183,17 +1301,6 @@ class _SettingsFormState extends State<_SettingsForm> {
           ),
         ],
       ),
-      bottomNavigationBar: mobile
-          ? SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: FilledButton(
-                  onPressed: () => _save(l10n),
-                  child: Text(l10n.save),
-                ),
-              ),
-            )
-          : null,
     );
   }
 }

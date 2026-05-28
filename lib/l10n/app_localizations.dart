@@ -1420,7 +1420,7 @@ abstract class AppLocalizations {
   /// No description provided for @settingsImportApplied.
   ///
   /// In en, this message translates to:
-  /// **'Settings loaded. Tap Save to persist, or edit first.'**
+  /// **'Settings imported and applied.'**
   String get settingsImportApplied;
 
   /// No description provided for @settingsImportFailed.
@@ -1651,6 +1651,18 @@ abstract class AppLocalizations {
   /// **'Download engine'**
   String get aboutPoweredBy;
 
+  /// No description provided for @aboutProjectRepo.
+  ///
+  /// In en, this message translates to:
+  /// **'Project repository'**
+  String get aboutProjectRepo;
+
+  /// No description provided for @aboutProjectRepoHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Open source on GitHub – contributions and issue reports are welcome.'**
+  String get aboutProjectRepoHint;
+
   /// No description provided for @aboutLicense.
   ///
   /// In en, this message translates to:
@@ -1660,13 +1672,13 @@ abstract class AppLocalizations {
   /// No description provided for @aboutLicenseBody.
   ///
   /// In en, this message translates to:
-  /// **'Released under GPLv2+, compatible with aria2.'**
+  /// **'Released under the GNU GPL-2.0 license, the same license as aria2.'**
   String get aboutLicenseBody;
 
   /// No description provided for @aboutLicenseLink.
   ///
   /// In en, this message translates to:
-  /// **'GNU GPLv2 full text'**
+  /// **'GNU GPL-2.0 full text'**
   String get aboutLicenseLink;
 
   /// No description provided for @platformHintMessage.

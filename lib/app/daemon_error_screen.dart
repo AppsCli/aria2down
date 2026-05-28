@@ -8,7 +8,6 @@ import '../aria2/client/aria2_exceptions.dart'
 import '../core/platform_hints.dart';
 import '../core/rpc_error_message.dart';
 import '../data/app_settings.dart';
-import '../data/settings_repository.dart';
 import '../features/settings/settings_page.dart';
 import '../providers/app_settings_provider.dart';
 import '../providers/aria2_daemon_provider.dart';
@@ -106,14 +105,16 @@ class DaemonErrorScreen extends ConsumerWidget {
                   const SizedBox(height: 10),
                   FilledButton.tonalIcon(
                     onPressed: () async {
-                      final current = await ref.read(
-                        appSettingsProvider.future,
-                      );
-                      await SettingsRepository.save(
-                        current.copyWith(connectionMode: ConnectionMode.remote),
-                      );
-                      ref.invalidate(appSettingsProvider);
-                      ref.invalidate(aria2DaemonProvider);
+                      // 走 notifier.mutate：内部先发布到 state（订阅者立刻看到）
+                      // 再异步写盘。daemon provider 用 `selectAsync` 监听
+                      // 连接模式，自动重建——这里不再需要手动 invalidate。
+                      await ref
+                          .read(appSettingsProvider.notifier)
+                          .mutate(
+                            (s) => s.copyWith(
+                              connectionMode: ConnectionMode.remote,
+                            ),
+                          );
                     },
                     icon: const Icon(Icons.cloud_outlined),
                     label: Text(l10n.daemonErrorSwitchRemote),

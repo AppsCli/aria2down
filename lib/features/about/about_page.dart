@@ -16,6 +16,7 @@ class AboutPage extends ConsumerWidget {
   const AboutPage({super.key});
 
   static const _aria2Url = 'https://github.com/aria2/aria2';
+  static const _projectRepoUrl = 'https://github.com/AppsCli/aria2down';
   static const _licenseUrl = 'https://www.gnu.org/licenses/gpl-2.0.html';
 
   Future<void> _open(Uri uri) async {
@@ -117,6 +118,23 @@ class AboutPage extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
           Text(l10n.aboutDesc),
+          const SizedBox(height: 16),
+          Text(l10n.aboutProjectRepo, style: t.textTheme.titleSmall),
+          const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.code_outlined),
+            title: const Text('AppsCli/aria2down'),
+            subtitle: Text(_projectRepoUrl),
+            onTap: () => _open(Uri.parse(_projectRepoUrl)),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              l10n.aboutProjectRepoHint,
+              style: t.textTheme.bodySmall,
+            ),
+          ),
           const SizedBox(height: 16),
           Text(l10n.aboutPoweredBy, style: t.textTheme.titleSmall),
           const SizedBox(height: 8),

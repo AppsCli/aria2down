@@ -4,6 +4,140 @@
 
 ## [Unreleased]
 
+### 修复（Android：在 MIUI / 类似沙盒上启动即崩溃，aria2 daemon 起不来）
+
+在部分 Android 设备（已知 **MIUI 12+ / Redmi K30 5G** 等机型）上，首次进入「本机引擎」模式会触发两段连环 native crash，App 还没显示首屏就被 Bionic 杀掉：
+
+| # | 信号 | 位置 | 含义 |
+| --- | --- | --- | --- |
+| 1 | SIGABRT | `SimpleRandomizer.cc:121: assert(1 == rv) failed` | OpenSSL `RAND_bytes()` 返回 0；aria2 peer-id 生成 abort |
+| 2 | SIGSEGV (fault `0x28`) | `SSL_CTX_set_default_verify_paths(NULL)` ← `OpenSSLTLSContext::addSystemTrustedCACerts` ← `MultiUrlRequestInfo::prepare` | `SSL_CTX_new()` 返回 NULL（内部走 `RAND_priv_bytes_ex` 生成 session-ticket 密钥失败），调用方没做空指针检查直接 deref |
+
+**根因（同一个 SECCOMP 拦截）**：
+
+OpenSSL 3.0 的 DRBG 首次取熵时按顺序尝试 `getentropy()`（弱符号绑定到 Bionic）→ `__NR_getrandom` syscall → `/dev/urandom`。MIUI 等 ROM 给应用沙盒下发的 SECCOMP 过滤器把 `getrandom(2)` 直接拒掉，Bionic 的 `getentropy()` 把 `EPERM` 透传出来；OpenSSL [`rand_unix.c::syscall_random`](https://github.com/openssl/openssl/blob/openssl-3.0.15/providers/implementations/rands/seeding/rand_unix.c) 看到 `errno != ENOSYS` 直接 `return -1`，**不会**进入下一段直 syscall 兜底，DRBG 永远停留在未实例化错误状态，下游所有 `RAND_bytes() / RAND_priv_bytes_ex()` 都返回 0，依赖它们的 `SSL_CTX_new` / aria2 peer-id / metalink nonce 等组件全部跟着崩。
+
+**修复（多层防御 + null guard）**：
+
+1. **[`third_party/aria2/src/Platform.cc`](third_party/aria2/src/Platform.cc) — 主路径**：在 `Platform::setUp()` 里、加载 `OSSL_PROVIDER_load("default")` 之前注册一个仅在 `__ANDROID__` 编译目标生效的自定义 [`RAND_METHOD`](https://docs.openssl.org/3.0/man3/RAND_set_rand_method/) `devurandom_method`。它的 `bytes()` 钩子直接走 `syscall(SYS_getrandom)` → `read("/dev/urandom")` 双兜底，完全绕过 OpenSSL 的 DRBG 实例化流程。
+
+   关键点：OpenSSL 3.0 的 `RAND_bytes_ex` **和** `RAND_priv_bytes_ex` 都会先 `RAND_get_rand_method() != RAND_OpenSSL()` 然后直接派发给我们的钩子（[crypto/rand/rand_lib.c#L325, L354](https://github.com/openssl/openssl/blob/openssl-3.0.15/crypto/rand/rand_lib.c#L325)），所以单点 hook 同时治 SSL_CTX_new、SimpleRandomizer、BT MSE 全部内部消费者。
+
+   同时显式调 `OPENSSL_init_crypto(OPENSSL_INIT_NO_LOAD_CONFIG | OPENSSL_INIT_NO_ATEXIT | ADD_ALL_CIPHERS | ADD_ALL_DIGESTS)` 抢在 SSL 路径前 fire 一次 RUN_ONCE，避免后续 `SSL_CTX_new` 隐式 `OPENSSL_init_ssl()` 触发 `openssl.cnf` 加载（`--openssldir` 是宿主机的交叉编译路径，设备上根本不存在），以及 atexit 注册（在 Android 进程结束时不安全）。这两个调用的返回值都通过 `__android_log_print(ANDROID_LOG_INFO, "aria2down", ...)` 写入 logcat，方便用户通过 `adb logcat -s aria2down` 一眼确认 hook 是否生效。
+
+2. **[`third_party/aria2/src/SimpleRandomizer.cc`](third_party/aria2/src/SimpleRandomizer.cc) — 副线保险**：在 OpenSSL 分支保留一份 `RAND_bytes() != 1 → fallback_random_bytes` 的本地兜底，逻辑同主路径。理论上 #1 生效后这条路径不会再触发，留作万一被上游升级覆盖时不至于 abort 的最后防线。
+
+3. **[`third_party/aria2/src/LibsslTLSContext.cc`](third_party/aria2/src/LibsslTLSContext.cc) — null guard**：原 aria2 在 `addSystemTrustedCACerts` / `addCredentialFile` / `addTrustedCACertFile` / 析构里裸 deref `sslCtx_`，一旦 `SSL_CTX_new()` 因 RAND 失败返回 NULL 必 SIGSEGV。新增空指针检查：sslCtx_ 为 NULL 时早返回 false（带 `__android_log_print` 警告 + `A2_LOG_ERROR`），让 aria2 daemon 至少能起来跑明文下载，TLS 静默降级而非整个进程挂掉。
+
+4. **[`packages/aria2_native/src/CMakeLists.txt`](packages/aria2_native/src/CMakeLists.txt)**：Android 链接列表新增 `log`，让 `__android_log_print` 能解析到 Bionic 的 `liblog.so`。
+
+补丁仅触达 aria2 子模块三份文件（`Platform.cc` / `SimpleRandomizer.cc` / `LibsslTLSContext.cc`），**不需要** patch OpenSSL 本身、不改 `libcrypto.a` 构建脚本。其他平台 / TLS 后端的代码路径全部用 `#if defined(__ANDROID__)` 排除：macOS / iOS 走 `SecRandomCopyBytes`，Windows 走 `CryptGenRandom`，桌面 Linux 走 OpenSSL 默认 DRBG，全部维持原行为；null guard 在所有平台都跑（修原本就是的 aria2 上游 bug，但不带任何性能开销）。
+
+操作：本仓库已用 `scripts/build_libaria2_android_macos.sh` 重建三 ABI（`armeabi-v7a / arm64-v8a / x86_64`）的 `libaria2.a` 并落到 `packages/aria2_native/prebuilt/android/`，用户拉取后 `flutter build apk` 直接生效。其他平台（macOS / iOS / Linux / Windows）prebuilt 不受影响，无需重建。
+
+**已知遗留**：在受 SECCOMP 拦截的设备上，HTTPS 下载会因 `SSL_CTX_new` 持续返回 NULL 而无法工作（明文 HTTP / BT / Magnet 仍正常）。logcat 有 `I/aria2down: SSL_CTX_new failed: err=... cause=error:12800067:DSO support routines::could not load the shared library` 提示。后续若需要恢复 HTTPS，可考虑：(a) 切换到 GnuTLS 后端，(b) 重新编 OpenSSL 时添加 `no-engine no-dynamic-engine no-module no-deprecated -DOPENSSL_USE_NODELETE` 彻底剔除 DSO 路径，(c) 远程 RPC 模式（依赖外部 aria2c）作为 fallback。
+
+性能影响：`/dev/urandom` 是内核 CSPRNG，单次读 6–48 字节微秒级；本应用大部分场景每个种子任务 < 1 KB 熵消耗，相比 OpenSSL DRBG 的额外重新抽取微不足道。该 hook 仅 `__ANDROID__`，桌面端 / iOS 不会因这次改动产生任何回归。
+
+### 工程（macOS 本机交叉编译 Android libaria2，告别 Docker）
+
+之前为 Android 打包必须先跑 [`scripts/build_libaria2_android.sh`](scripts/build_libaria2_android.sh)，
+该脚本基于上游 [`Dockerfile.android`](third_party/aria2/Dockerfile.android) 在 Docker
+容器里跑 NDK + OpenSSL + c-ares 等依赖的交叉编译。Docker 工作流问题不少：
+
+- 镜像首次构建 7–15 分钟，且每次升级依赖都要重建；
+- macOS 上 Docker Desktop 体积大、占内存，CI runner 上还经常拿不到 daemon；
+- 容器内 `make install` 与 host 之间的卷挂载在 macOS 上 IO 严重退化；
+- 想临时调依赖版本要改 Dockerfile，rebuild 整个镜像。
+
+但实际上多数 Flutter 开发者本机就已经装了 Android Studio + NDK，完全可以直接
+用本机 NDK + clang 交叉编译。新脚本
+[`scripts/build_libaria2_android_macos.sh`](scripts/build_libaria2_android_macos.sh)
+正是为此而生：
+
+- **自动探测 NDK**：`$ANDROID_NDK_HOME` / `$ANDROID_NDK_ROOT` / `$NDK_HOME` →
+  `$ANDROID_HOME/ndk/<最新>` → `$ANDROID_SDK_ROOT/ndk/<最新>` →
+  `~/Library/Android/sdk/ndk/<最新>` 依次回退；同时支持 Apple Silicon
+  (`darwin-arm64`) / Intel (`darwin-x86_64`) prebuilt toolchain。
+- **依赖即时编译**：脚本会下载并缓存 OpenSSL 3.0.x LTS、zlib 1.3.1、
+  expat 2.5.0、c-ares 1.21.0，分别针对每个 ABI 独立交叉编译为静态库，
+  落在 `build/libaria2/android-native/install-<abi>/` 中。源码 tarball 缓存到
+  `cache/` 子目录，重复运行只走 incremental（依赖已建则跳过）。sqlite3 默认
+  关闭（aria2 仅用其读 Firefox `cookies.sqlite`，移动端无意义，且 `sqlite.org`
+  在 CN-mainland 网络下经常超时）；需要时用 `ENABLE_SQLITE3=1` 显式打开。
+- **三 ABI 覆盖**：默认 `armeabi-v7a arm64-v8a x86_64`，可在命令行单独指定；
+  `ANDROID_API` 环境变量调整最低 SDK（默认 21，跟 `flutter.minSdkVersion` 对齐）。
+- **复用既有 prebuilt 结构**：产物按
+  `packages/aria2_native/prebuilt/android/<abi>/{libaria2.a, include/, deps/*.a}`
+  落盘。
+- **修复 [packages/aria2_native/src/CMakeLists.txt](packages/aria2_native/src/CMakeLists.txt)
+  的 Android 链接错误**：之前对 `UNIX AND NOT APPLE` 分支统一 `target_link_libraries
+  pthread dl m`，但 Android Bionic 把 `libpthread` / `librt` 都合并进 `libc`，
+  `ld.lld: error: unable to find library -lpthread` 会让所有用了 aria2_native 的 APK
+  打不出。新增 `if(ANDROID)` 分支只链 `dl m`，桌面 Linux 保持原样。
+- **修复 [android/app/build.gradle.kts](android/app/build.gradle.kts) 的 NDK / minSdk
+  配置**：Flutter 3.32 默认 `flutter.ndkVersion = 26.3.11579264`，但多个插件
+  （`aria2_native` / `app_links` / `file_picker` / …）已经要求 NDK 27.0.12077973，
+  默认配置下整个 build 会被 Gradle 用 NDK 26 强行兜底导致警告 + 链接路径错位。
+  显式 `ndkVersion = "27.0.12077973"` 与 macOS 编译脚本对齐。另外
+  aria2 在 NDK 27 32-bit ARM 上需要 LFS `fseeko/ftello`（仅 API ≥ 24 暴露），
+  把 `minSdk` 改成 `maxOf(24, flutter.minSdkVersion)`。
+- **zlib `-fPIC` 修正**：脚本里 zlib 的 `./configure --static` 默认不开 PIC，
+  导致后续 aria2_native shared library 链接时报
+  `R_AARCH64_ADR_PREL_PG_HI21 cannot be used against symbol 'z_errmsg'`。显式
+  `CFLAGS="-O2 -fPIC"` 注入。OpenSSL（`no-shared` 自动 PIC）/ expat / c-ares
+  原本就已带 `-fPIC`，未改动。
+- **aria2 configure 选项与 Docker 版保持一致**：`--enable-libaria2 --enable-static
+  --disable-shared --with-openssl --with-libexpat --with-libcares --with-libz
+  --without-sqlite3 --with-libssh2=no`；`libssh2` / `libuv` / `libxml2` 在桌面端
+  也是关的，保持三平台口径统一。
+- **文档同步**：[docs/BUILD_LIBARIA2.md](docs/BUILD_LIBARIA2.md) Android 章节改写为
+  「推荐：macOS 本机交叉编译（无 Docker）」+「备选：Docker」两小节，列出依赖版本表，
+  并保留旧脚本作为「没装 NDK 时的兜底」。
+- **未触及**：Docker 版脚本 / `Dockerfile.android` / CI workflow / FFI binding 一概
+  未动，老的 CI 流程仍然有效，可以无缝切换。
+
+典型耗时（M1 Pro / 32G）：首次冷启动 3 ABI 全编 ≈ 7 分钟；保留 install 目录后只
+跑 `make` 增量 ≈ 90 秒 / ABI。
+
+### 修改（设置页改即生效，移除显式「保存」按钮）
+
+之前所有设置变更都缓存在 `_SettingsForm` 的本地状态里，必须点底部 / 桌面右侧的 **保存** 按钮才会写入 SharedPreferences + 重启 aria2 / 重连远程 RPC。换语言、改主题、切托盘行为这种「应该是立刻反馈」的小操作要先点击三次（改 → 保存 → 看效果），心智成本高；离开设置页忘了点保存改动就丢，新用户反复踩坑。
+
+本次把设置页改成「改即生效」模型——任何控件触发都直接持久化并实时应用，不再有专门的保存动作：
+
+- **新建 [`AppSettingsNotifier`](lib/providers/app_settings_provider.dart)**：把原 `FutureProvider<AppSettings>` 改成 `AsyncNotifierProvider`，对外暴露 `set(AppSettings)` / `mutate((s) => s.copyWith(...))` / `resetToDefaults()`。先 `state = AsyncData(next)` 让 UI 立刻看到新值（主题、语言、托盘 binding 等订阅者瞬间响应），再异步写盘；磁盘写入失败时回滚到旧值并把 `AsyncError` 暴露给监听方，保证用户能感知（而不是默默把改动吞掉）。命名上避开父类 `AsyncNotifier.update` 的固定签名（`Future<T> Function(T) → onError`），用 `set` 表达「整体替换」语义。
+- **[`aria2DaemonProvider`](lib/providers/aria2_daemon_provider.dart) 改用 `selectAsync` 只盯连接相关字段**：以前 daemon 依赖整份 `AppSettings`，theme / locale / 种子色变了也会重启 aria2——在新的「改即生效」模型下这会导致用户每按一下主题段就把下载中断一次。现在抽出一个 `_DaemonInputs` Dart record（受当前 `ConnectionMode` 影响动态裁剪：remote 模式只放 endpoint / secret，local 模式只放下载目录 + 4 个调优参数）作为 selector 返回值，Riverpod 用 record 的值相等判定，只有真正影响 daemon 行为的字段变了才重建 daemon。
+- **[`SettingsPage`](lib/features/settings/settings_page.dart) 全面重写**：
+  - 移除 `key: ValueKey(s)`——之前每次设置变化都会让整个表单 unmount / remount，焦点 / 光标 / 滚动位置全丢；现在表单常驻，靠 provider watch 自然响应。
+  - 移除 `_save()` 方法、桌面端 `FilledButton` 与移动端 `bottomNavigationBar` 里的「保存」按钮。
+  - 开关 / SegmentedButton / Dropdown / 主题色挑选 / 下载目录 picker / `askDownloadDirEachTime` switch 等「即时型」交互直接调 `notifier.mutate((s) => s.copyWith(...))` 落盘。下载目录在落盘后还会顺手 `changeGlobalOption({'dir': ...})` 推给正在跑的 daemon（沿用旧 `_save` 行为）。
+  - 文本框（远程端点 / Secret / 并发数 / 单 server 连接数 / 上下行限速）走 **失焦提交** 模式：每个 `TextField` 绑一个 `FocusNode`，监听器统一调 `_commitTextFields()`——这样在用户按一个键就重启 aria2 / 重连 RPC 之间留出缓冲，避免「输入 192.168.1.100:6800 重连了 17 次」的灾难。同时支持 `onSubmitted`（按 Enter）提交，键盘党不必依赖失焦事件。
+  - 「应用到运行中」按钮（`_applyRuntimeLimits`）保留——它是「即时把当前限速 RPC 推给正在跑的 aria2」的快捷方式，不依赖 daemon 重启。该按钮现在先 `_commitTextFields()` 再 RPC，保证盘上 / 内存 / aria2 三处状态一致。
+  - 导入 / 重置走 `notifier.set(imported)` / `notifier.resetToDefaults()` 后再同步本地文本控制器，让用户即刻看到字段被重写为新值（同时也避免抢正在编辑的字段焦点：`_syncControllersFrom` 仅在 `FocusNode.hasFocus == false` 时改写控件 text）。
+- **[`DaemonErrorScreen.daemonErrorSwitchRemote`](lib/app/daemon_error_screen.dart) 也迁移到 notifier**：之前是 `SettingsRepository.save(...) + ref.invalidate(appSettingsProvider) + ref.invalidate(aria2DaemonProvider)` 三步；现在一行 `notifier.mutate((s) => s.copyWith(connectionMode: remote))` 完成，daemon provider 通过 selectAsync 自动重建，不需要手动 invalidate。
+- **l10n**：[`settingsImportApplied`](lib/l10n/app_en.arb#L314) 文案从「Settings loaded. Tap Save to persist, or edit first.」改为「Settings imported and applied.」，中文从「已载入设置，请点击「保存」或继续编辑后保存。」改为「已导入并即时应用设置。」；其它语言 fallback 到英文新文案。
+- **测试**（[`test/widget_test.dart`](test/widget_test.dart)）：
+  - 新增「不再渲染独立的「保存」按钮」widget 测试，回归保护。
+  - 新增「切换主题偏好后立刻写盘」端到端测试：用 `ProviderContainer` 旁路 widget tree 拿 notifier，点 `深色` 段后断言 ① provider 内存状态变 `dark`、② `SettingsRepository.load()` 从 SharedPreferences 读回来也是 `dark`——证明同一次点击同时驱动了 UI 与磁盘。
+- **跨场景一致性**：原本会显式 `ref.invalidate(appSettingsProvider) + ref.invalidate(aria2DaemonProvider)` 的两处调用点（`SettingsPage._confirmResetSettings` / `SettingsPage._confirmShutdownAria2`）保留对 daemon 的显式 invalidate（重置 / shutdown 后用户预期 daemon 重建），其余路径不再需要——`AsyncNotifier` + `selectAsync` 让 daemon 的重启严格对应到「连接关键字段真的变了」。
+- **未触及**：`SettingsRepository` 的存储格式 / 字段 / 历史遗留键清理逻辑全部保持不变，所以本变更不影响升级路径——已有用户的 SharedPreferences 内容直接被 `SettingsRepository.load()` 读出来塞进 notifier 即可。
+
+### 修复（macOS：Finder 双击 `.torrent` / `.metalink` 不触发下载）
+
+之前在 macOS Finder 里双击 `.torrent` / `.metalink`，或用「打开方式 → aria2down」打开种子文件，应用确实会被唤起，但**既不会进入新建任务页，也不会弹种子文件选择对话框**——什么都不发生。
+
+根因：[app_links](https://pub.dev/packages/app_links) 的 macOS 实现只通过 `NSAppleEventManager` 订阅了自定义 URL Scheme（`kAEGetURL`，对应 `aria2down://` / `magnet:` 这一类），**没有实现 `application(_:open urls:)` / `handleOpenURLs:`**，所以 Finder 打开文件投递的 `kAEOpenDocuments` Apple Event → `application(_:open urls:)` 回调链路上，`file://` URL 被静默丢弃，Dart 侧 [`IncomingLinkListener`](lib/app/incoming_link_listener.dart) 永远收不到。
+
+修复：
+
+- **[macos/Runner/AppDelegate.swift](macos/Runner/AppDelegate.swift)**：重写 `application(_:open urls:)`，把传入的所有 `URL`（含 `file://`）通过 `import app_links` + `AppLinks.shared.handleLink(...)` 注入到 app_links 的统一管道。冷启动场景下即便 Flutter 还没起来，URL 也会被 `AppLinks` 的单例缓存到 `initialLink`，待 Dart 侧 `getInitialLink()` 时取出；热启动场景下直接通过 `eventSink` 推到 `uriLinkStream`。**对自定义 URL Scheme 无副作用**——`aria2down://` / `magnet:` 仍走 `kAEGetURL` Apple Event 优先派发，不进 `application(_:open urls:)`。
+- **[lib/core/incoming_link.dart](lib/core/incoming_link.dart)**：收紧 `parseIncomingLink` 对 `file://` URI 的兜底逻辑——只接受 `.torrent` / `.metalink` / `.meta4` / `.metalink4`；未知扩展名（含无扩展名）回退 `IncomingUnknown`，避免把任意桌面文件盲投到 `aria2.addTorrent`。Android `content://` SAF 投递常见没扩展名的情况仍保持「按 torrent 兜底」行为。
+- **[lib/app/incoming_link_listener.dart](lib/app/incoming_link_listener.dart)**：bytes 读取失败时增加 debug 日志，方便排查（沙盒权限被回收 / 文件不在 / 损坏等场景）。
+- **测试**：[`test/core/incoming_link_test.dart`](test/core/incoming_link_test.dart) 新增两条用例覆盖 `file://` 未知扩展名 / 无扩展名都回退到 `IncomingUnknown`。
+
+> **平台范围说明**：本次只动了 macOS native 入口。Linux `.desktop` 关联走 GApplication `HANDLES_OPEN`，由 `app_links_linux` 自己处理；Windows MSIX `file_extension` 把文件路径作为 `argv[1]` 透传给 `app_links` 的 `GetLink()` 解析。这两个平台是否同样存在「双击文件不下载」的回归仍待用户场景验证（Windows path 不带 URL scheme，正则匹配会落空，理论上同样需要在 `windows/runner/main.cpp` 里把 path 转 `file:///` 后再投递——本次先不动，等 issue 反馈再追）。
+
 ### 工程（GitHub Actions 全平台打包与 Tag-Release 流程完善）
 
 之前 CI 只验证 build 能过 + 上传 bundle 目录；本次升级为全平台**单文件可分发安装包**直接 attach 到 Actions artifact + GitHub Release，覆盖 Windows MSIX、macOS DMG、Linux tar.gz、Android per-ABI APK。

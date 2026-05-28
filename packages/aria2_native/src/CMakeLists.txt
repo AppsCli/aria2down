@@ -65,7 +65,13 @@ if(EXISTS "${ARIA2_NATIVE_LIBARIA2}")
     "${ARIA2_NATIVE_LIBARIA2}"
     ${_aria2_ffi_static_deps})
 
-  if(UNIX AND NOT APPLE)
+  if(ANDROID)
+    # Android Bionic 把 pthread / rt 都合进 libc，单独 `-lpthread -lrt` 会让
+    # ld.lld 报 "unable to find library"。这里只链 dl + m。
+    # log 是 __android_log_print 所在的 liblog.so，aria2 子模块本地补丁里
+    # 在 Platform.cc / LibsslTLSContext.cc 用它做 SSL/RAND 自检日志。
+    target_link_libraries(aria2_native PRIVATE dl m log)
+  elseif(UNIX AND NOT APPLE)
     target_link_libraries(aria2_native PRIVATE pthread dl m)
   elseif(APPLE)
     target_link_libraries(aria2_native PRIVATE "-framework CoreFoundation" "-framework Security")

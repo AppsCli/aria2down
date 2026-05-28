@@ -21,8 +21,17 @@ import 'app_settings_provider.dart';
 /// Web 没有原生进程，强制本机模式时抛 [Aria2WebLocalUnsupportedException]——
 /// 配置层 ([appSettingsProvider]) 在首次启动时会把 Web 默认连接模式设为
 /// remote，正常情况下走不到这条异常。
+///
+/// **重要：本 provider 通过 `selectAsync` 只盯 [_DaemonInputs] 里的字段**。
+/// theme / locale / 种子色 / 托盘 / 限速文本等设置变化**不会**重启 aria2，
+/// 避免「调个语言把下载断了」这种糟糕 UX。只有 connectionMode / 远程
+/// endpoint / 远程 secret / 本机引擎初始化参数（下载目录、并发、上限等）
+/// 真正变化时才重建 daemon。
 final aria2DaemonProvider = FutureProvider<Aria2Daemon>((ref) async {
-  final settings = await ref.watch(appSettingsProvider.future);
+  // 只订阅会影响 daemon 行为的字段——其余设置（主题 / 语言 / 托盘等）变更
+  // 不会让 selectAsync 返回新值，daemon provider 不会被重新调度。
+  await ref.watch(appSettingsProvider.selectAsync(_daemonInputs));
+  final settings = await ref.read(appSettingsProvider.future);
 
   // 关键：在 daemon 创建后**立即**注册 onDispose，无论 `start()` 是否成功。
   // 启动失败时仍要 stop() 释放任何已分配的资源（FFI session、WS 连接等）。
@@ -36,6 +45,48 @@ final aria2DaemonProvider = FutureProvider<Aria2Daemon>((ref) async {
 
   return _createAndStart(settings, (d) => created = d);
 });
+
+/// 仅含「触发 daemon 重建」所需的字段，用 Dart record 自带的值相等让
+/// `selectAsync` 能精确判定是否需要重启 aria2。
+///
+/// 设计要点：根据当前 [ConnectionMode] 把无关分支显式 null 化——比如远程
+/// 模式下用户改了 max-concurrent，不会让远程 daemon 重连；本机模式下改了
+/// 远程 endpoint 也不会让 library daemon 重启。
+typedef _DaemonInputs = ({
+  ConnectionMode connectionMode,
+  String? remoteRpcEndpoint,
+  String? remoteRpcSecret,
+  String? downloadDirectoryOverride,
+  int? maxConcurrentDownloads,
+  int? maxConnectionPerServer,
+  String? globalDownloadLimit,
+  String? globalUploadLimit,
+});
+
+_DaemonInputs _daemonInputs(AppSettings s) {
+  if (s.connectionMode == ConnectionMode.remote) {
+    return (
+      connectionMode: s.connectionMode,
+      remoteRpcEndpoint: s.remoteRpcEndpoint,
+      remoteRpcSecret: s.remoteRpcSecret,
+      downloadDirectoryOverride: null,
+      maxConcurrentDownloads: null,
+      maxConnectionPerServer: null,
+      globalDownloadLimit: null,
+      globalUploadLimit: null,
+    );
+  }
+  return (
+    connectionMode: s.connectionMode,
+    remoteRpcEndpoint: null,
+    remoteRpcSecret: null,
+    downloadDirectoryOverride: s.downloadDirectoryOverride,
+    maxConcurrentDownloads: s.maxConcurrentDownloads,
+    maxConnectionPerServer: s.maxConnectionPerServer,
+    globalDownloadLimit: s.globalDownloadLimit,
+    globalUploadLimit: s.globalUploadLimit,
+  );
+}
 
 Future<Aria2Daemon> _createAndStart(
   AppSettings settings,

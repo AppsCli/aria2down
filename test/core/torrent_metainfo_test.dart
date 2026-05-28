@@ -24,9 +24,7 @@ void main() {
   });
 
   test('parseTorrentFileList 单文件 torrent', () async {
-    final bytes = await File(
-      'test/fixtures/single.torrent',
-    ).readAsBytes();
+    final bytes = await File('test/fixtures/single.torrent').readAsBytes();
     final list = parseTorrentFileList(bytes);
     expect(list.length, 1);
     expect(list.single.index, 1);

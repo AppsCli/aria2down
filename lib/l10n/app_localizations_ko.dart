@@ -730,8 +730,7 @@ class AppLocalizationsKo extends AppLocalizations {
   }
 
   @override
-  String get settingsImportApplied =>
-      'Settings loaded. Tap Save to persist, or edit first.';
+  String get settingsImportApplied => 'Settings imported and applied.';
 
   @override
   String settingsImportFailed(String error) {
@@ -856,14 +855,21 @@ class AppLocalizationsKo extends AppLocalizations {
   String get aboutPoweredBy => 'Download engine';
 
   @override
+  String get aboutProjectRepo => 'Project repository';
+
+  @override
+  String get aboutProjectRepoHint =>
+      'Open source on GitHub – contributions and issue reports are welcome.';
+
+  @override
   String get aboutLicense => 'License';
 
   @override
   String get aboutLicenseBody =>
-      'Released under GPLv2+, compatible with aria2.';
+      'Released under the GNU GPL-2.0 license, the same license as aria2.';
 
   @override
-  String get aboutLicenseLink => 'GNU GPLv2 full text';
+  String get aboutLicenseLink => 'GNU GPL-2.0 full text';
 
   @override
   String get platformHintMessage =>

@@ -1,0 +1,186 @@
+diff --git a/src/LibsslTLSContext.cc b/src/LibsslTLSContext.cc
+index 2cf78323..f8af64b0 100644
+--- a/src/LibsslTLSContext.cc
++++ b/src/LibsslTLSContext.cc
+@@ -41,6 +41,10 @@
+ #include <openssl/pkcs12.h>
+ #include <openssl/bio.h>
+ 
++#ifdef __ANDROID__
++#  include <android/log.h>
++#endif
++
+ #include "LogFactory.h"
+ #include "Logger.h"
+ #include "fmt.h"
+@@ -106,8 +110,16 @@ OpenSSLTLSContext::OpenSSLTLSContext(TLSSessionSide side, TLSVersion minVer)
+   }
+   else {
+     good_ = false;
++    unsigned long err = ERR_get_error();
+     A2_LOG_ERROR(fmt("SSL_CTX_new() failed. Cause: %s",
+-                     ERR_error_string(ERR_get_error(), nullptr)));
++                     ERR_error_string(err, nullptr)));
++#ifdef __ANDROID__
++    // aria2 的 LogFactory 在 libaria2 FFI 模式下不会自动写入 Android logcat，
++    // 把 SSL_CTX_new 失败原因显式打到 logcat 便于现场诊断。
++    __android_log_print(ANDROID_LOG_INFO, "aria2down",
++                        "SSL_CTX_new failed: err=%lu cause=%s", err,
++                        ERR_error_string(err, nullptr));
++#endif
+     return;
+   }
+ 
+@@ -275,6 +287,13 @@ bool OpenSSLTLSContext::addP12CredentialFile(const std::string& p12file)
+ 
+ bool OpenSSLTLSContext::addSystemTrustedCACerts()
+ {
++  // 上游 bug：若构造时 SSL_CTX_new 失败（在 Android 某些 ROM 上常见），
++  // sslCtx_ 仍为 nullptr，但本函数无防护地对其调 SSL_CTX_set_default_verify_paths，
++  // 直接段错误。补一道 null guard，让调用方收到 false 后能 graceful degrade。
++  if (!sslCtx_) {
++    A2_LOG_INFO("addSystemTrustedCACerts: SSL_CTX is null, skipping");
++    return false;
++  }
+   if (SSL_CTX_set_default_verify_paths(sslCtx_) != 1) {
+     A2_LOG_INFO(fmt(MSG_LOADING_SYSTEM_TRUSTED_CA_CERTS_FAILED,
+                     ERR_error_string(ERR_get_error(), nullptr)));
+diff --git a/src/Platform.cc b/src/Platform.cc
+index 9f3ddb25..a71178db 100644
+--- a/src/Platform.cc
++++ b/src/Platform.cc
+@@ -45,6 +45,15 @@
+ #  include <openssl/err.h>
+ #  include <openssl/ssl.h>
+ #  include "libssl_compat.h"
++#  if defined(__ANDROID__)
++#    include <openssl/crypto.h>
++#    include <openssl/rand.h>
++#    include <sys/syscall.h>
++#    include <unistd.h>
++#    include <fcntl.h>
++#    include <errno.h>
++#    include <android/log.h>
++#  endif
+ #endif // HAVE_OPENSSL
+ #ifdef HAVE_LIBGCRYPT
+ #  include <gcrypt.h>
+@@ -97,6 +106,55 @@ OSSL_PROVIDER* Platform::legacy_provider_ = nullptr;
+ OSSL_PROVIDER* Platform::default_provider_ = nullptr;
+ #endif // OPENSSL_VERSION_NUMBER >= 0x30000000L
+ 
++#if defined(HAVE_OPENSSL) && defined(__ANDROID__)
++namespace {
++// 直接从 /dev/urandom 抽熵。先用 syscall(SYS_getrandom) 绕过 libc 包装；若
++// SECCOMP 拦截则退到 read("/dev/urandom")。两条路径都不会触发 OpenSSL DRBG。
++int devurandom_bytes_impl(unsigned char* buf, int num)
++{
++  if (num <= 0) return 1;
++  size_t want = static_cast<size_t>(num);
++  size_t got = 0;
++#  ifdef SYS_getrandom
++  while (got < want) {
++    long n = ::syscall(SYS_getrandom, buf + got, want - got, 0);
++    if (n < 0) {
++      if (errno == EINTR) continue;
++      break;
++    }
++    if (n == 0) break;
++    got += static_cast<size_t>(n);
++  }
++  if (got == want) return 1;
++#  endif
++  int fd = ::open("/dev/urandom", O_RDONLY | O_CLOEXEC);
++  if (fd < 0) return 0;
++  while (got < want) {
++    auto n = ::read(fd, buf + got, want - got);
++    if (n < 0) {
++      if (errno == EINTR) continue;
++      break;
++    }
++    if (n == 0) break;
++    got += static_cast<size_t>(n);
++  }
++  ::close(fd);
++  return got == want ? 1 : 0;
++}
++
++int devurandom_status_impl() { return 1; }
++
++RAND_METHOD devurandom_method = {
++    nullptr,                 // seed
++    devurandom_bytes_impl,   // bytes
++    nullptr,                 // cleanup
++    nullptr,                 // add
++    devurandom_bytes_impl,   // pseudorand
++    devurandom_status_impl,  // status
++};
++} // namespace
++#endif // HAVE_OPENSSL && __ANDROID__
++
+ Platform::Platform() { setUp(); }
+ 
+ Platform::~Platform() { tearDown(); }
+@@ -118,6 +176,22 @@ bool Platform::setUp()
+ #endif // ENABLE_NLS
+ 
+ #ifdef HAVE_OPENSSL
++#  if defined(__ANDROID__)
++  // 关键：在加载任何 provider 之前，禁用自动配置/atexit，并劫持 RAND_METHOD。
++  // 见 CHANGELOG.md「SimpleRandomizer.cc:121 assert(1 == rv)」条目：某些
++  // Android ROM 把 getrandom(2) SECCOMP 拦截后，OpenSSL 3.0 的 DRBG 永远
++  // 实例化失败，下游 RAND_bytes / SSL_CTX_new / peer-id 全连锁崩盘。
++  {
++    int initRv = ::OPENSSL_init_crypto(
++        OPENSSL_INIT_NO_LOAD_CONFIG | OPENSSL_INIT_NO_ATEXIT, nullptr);
++    __android_log_print(ANDROID_LOG_INFO, "aria2down",
++                        "OPENSSL_init_crypto(no-config,no-atexit) -> %d",
++                        initRv);
++    int setRv = ::RAND_set_rand_method(&devurandom_method);
++    __android_log_print(ANDROID_LOG_INFO, "aria2down",
++                        "RAND_set_rand_method -> %d (devurandom)", setRv);
++  }
++#  endif // __ANDROID__
+ #  if OPENSSL_VERSION_NUMBER >= 0x30000000L
+   // RC4 is in the legacy provider.
+   legacy_provider_ = OSSL_PROVIDER_load(nullptr, "legacy");
+diff --git a/src/SimpleRandomizer.cc b/src/SimpleRandomizer.cc
+index f1603935..fe38ee4b 100644
+--- a/src/SimpleRandomizer.cc
++++ b/src/SimpleRandomizer.cc
+@@ -36,6 +36,8 @@
+ 
+ #include <sys/types.h>
+ #include <unistd.h>
++#include <fcntl.h>
++#include <cerrno>
+ #include <cstdlib>
+ #include <cassert>
+ #include <cstring>
+@@ -118,6 +120,26 @@ void SimpleRandomizer::getRandomBytes(unsigned char* buf, size_t len)
+ #elif defined(HAVE_OPENSSL)
+   auto rv = RAND_bytes(buf, len);
+   if (rv != 1) {
++#  if defined(__ANDROID__) || defined(__linux__)
++    // 兜底保险：OpenSSL DRBG 在某些 Android ROM 上无法初始化（SECCOMP 拦截
++    // getrandom(2)，OpenSSL rand_unix.c 不会再退到 /dev/urandom 直读），导致
++    // RAND_bytes 全部返回 0，进而 peer-id 生成 abort。直接 read /dev/urandom
++    // 在 Android/Linux 上是受支持的 CSPRNG 入口，性能可忽略。
++    int fd = ::open("/dev/urandom", O_RDONLY | O_CLOEXEC);
++    if (fd >= 0) {
++      size_t got = 0;
++      while (got < len) {
++        auto n = ::read(fd, buf + got, len - got);
++        if (n <= 0) {
++          if (n < 0 && errno == EINTR) continue;
++          break;
++        }
++        got += static_cast<size_t>(n);
++      }
++      ::close(fd);
++      if (got == len) return;
++    }
++#  endif // __ANDROID__ || __linux__
+     assert(1 == rv);
+     abort();
+   }

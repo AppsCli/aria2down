@@ -89,6 +89,11 @@ class _IncomingLinkListenerState extends ConsumerState<IncomingLinkListener> {
   Future<void> _handleFile(IncomingFile file) async {
     final bytes = await IncomingFileLoader.readBytes(file.uri);
     if (bytes == null) {
+      if (kDebugMode) {
+        debugPrint(
+          'aria2down: failed to read incoming file (sandbox / not found?): ${file.uri}',
+        );
+      }
       widget.router.go('/add');
       return;
     }

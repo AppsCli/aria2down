@@ -709,7 +709,7 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get settingsImportApplied => '已载入设置，请点击「保存」或继续编辑后保存。';
+  String get settingsImportApplied => '已导入并即时应用设置。';
 
   @override
   String settingsImportFailed(String error) {
@@ -831,13 +831,19 @@ class AppLocalizationsZh extends AppLocalizations {
   String get aboutPoweredBy => '下载引擎';
 
   @override
+  String get aboutProjectRepo => '项目仓库';
+
+  @override
+  String get aboutProjectRepoHint => '本项目在 GitHub 上开源，欢迎反馈问题与提交贡献。';
+
+  @override
   String get aboutLicense => '许可证';
 
   @override
-  String get aboutLicenseBody => '本项目基于 GPLv2+ 发布，与 aria2 许可证兼容。';
+  String get aboutLicenseBody => '本项目以 GNU GPL-2.0 协议发布，与 aria2 采用相同许可证。';
 
   @override
-  String get aboutLicenseLink => 'GNU GPLv2 全文';
+  String get aboutLicenseLink => 'GNU GPL-2.0 全文';
 
   @override
   String get platformHintMessage =>

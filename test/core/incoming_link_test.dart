@@ -58,11 +58,26 @@ void main() {
       expect((p as IncomingFile).kind, IncomingFileKind.metalink);
     });
 
-    test('content:// 无扩展名按 torrent 兜底', () {
+    test('content:// 无扩展名按 torrent 兜底（Android SAF 投递常见情况）', () {
       const raw = 'content://media/external/file/123';
       final p = parseIncomingLink(Uri.parse(raw));
       expect(p, isA<IncomingFile>());
       expect((p as IncomingFile).kind, IncomingFileKind.torrent);
+    });
+
+    test('file:// 未知扩展名不再误判为 torrent', () {
+      // 桌面平台（macOS Finder「打开方式」/ Linux xdg-open）只声明
+      // .torrent / .metalink / .meta4 三个文件关联，理论上不会拿到其它扩展，
+      // 但代码必须防御性地拒绝，避免把随机文件喂进 aria2.addTorrent。
+      const raw = 'file:///tmp/readme.txt';
+      final p = parseIncomingLink(Uri.parse(raw));
+      expect(p, isA<IncomingUnknown>());
+    });
+
+    test('file:// 无扩展名同样回退 Unknown', () {
+      const raw = 'file:///tmp/Makefile';
+      final p = parseIncomingLink(Uri.parse(raw));
+      expect(p, isA<IncomingUnknown>());
     });
 
     test('分享文本提取多链接', () {
