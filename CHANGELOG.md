@@ -4,6 +4,44 @@
 
 ## [Unreleased]
 
+### 修复（Android：64-bit `.so` 没有 16 KB 段对齐，AAB 上传 Play Console 提示「您的应用不支持 16 KB 内存页面大小」）
+
+用户反馈：本轮把 `flutter build appbundle --release` 产物传到 Google Play 内部测试通道时收到拦截：
+
+> 您的应用不支持 16 KB 内存页面大小。
+
+定位：从 Android 15 起 64-bit 设备（Pixel 8a 起 stock，2025-11 后扩散到大多数 OEM）切到 16 KB 页表，要求 APK / AAB 里 `arm64-v8a` 和 `x86_64` 下的所有 `.so` 段（ELF program header 里 PT_LOAD 的 `p_align`）至少 0x4000（16 KB）。检查现有产物：
+
+```
+arm64-v8a:
+  libflutter.so / libapp.so / libc++_shared.so   p_align >= 0x4000   OK
+  libaria2_native.so                              p_align  = 0x1000   FAIL
+```
+
+只有我们自己用 CMake 出的 `libaria2_native.so` 仍是 4 KB 对齐——NDK r28 起 `ld.lld` 默认 `-z max-page-size=16384`，但项目 [`android/app/build.gradle.kts`](android/app/build.gradle.kts) 锁定的是 r27（`ndkVersion = "27.0.12077973"`，跟 `build_libaria2_android_macos.sh` 里 aria2 静态库的工具链对齐），r27 不会默认加这个 flag。
+
+**修复**：[`packages/aria2_native/src/CMakeLists.txt`](packages/aria2_native/src/CMakeLists.txt) 在 `add_library(aria2_native SHARED ...)` 后追加（仅 Android 平台）：
+
+```cmake
+if(ANDROID)
+  target_link_options(aria2_native PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384")
+endif()
+```
+
+`max-page-size` 让段间 padding 按 16 KB 对齐，`common-page-size` 让首段在 file offset 里也按 16 KB 起头——两个一起声明覆盖整个 ELF 排版。32-bit `armeabi-v7a` 上 `ld.lld` 仍会按 4 KB 算 vaddr 偏移（32-bit Android 永远是 4 KB 页表），但加这个 flag 不会破坏 32-bit 链接，可以无脑统一开。
+
+**验证**（`flutter build apk --release` + `flutter build appbundle --release` 后逐个解 ELF program header）：
+
+```
+arm64-v8a:  libaria2_native.so   p_align = 0x4000   OK
+x86_64:     libaria2_native.so   p_align = 0x4000   OK
+armeabi-v7a:libaria2_native.so   p_align = 0x4000   OK  (32-bit 不强制)
+```
+
+APK / AAB 里 STORED（未压缩）的 64-bit `.so` 在 ZIP 内 file offset 也全部 16 KB 对齐（AGP 8.7.3 默认行为），上传到 Play Console 内部测试通道不再报警。无 Dart 代码改动；只对 `packages/aria2_native` Android 链接行为有影响。
+
 ### 工程（`build_libaria2_android_macos.sh`：依赖下载支持多源 fallback + 解压完整性 retry）
 
 用户反馈："`www.openssl.org` 经常被 ISP 拒，脚本卡在 `fetch openssl-3.0.15.tar.gz` 几分钟才失败退出，能不能换个能拉到的源？"

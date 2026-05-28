@@ -53,6 +53,22 @@ set_target_properties(aria2_native PROPERTIES
   OUTPUT_NAME aria2_native
 )
 
+# Android 15+ / Google Play 要求 64-bit ABI 的所有 .so 段对齐到 16 KB。
+# NDK r28 起 ld.lld 默认 `-z max-page-size=16384`；项目锁定 NDK r27
+# （见 android/app/build.gradle.kts 的 ndkVersion），必须显式声明这个
+# 链接选项，否则 `arm64-v8a` / `x86_64` 上的 libaria2_native.so PT_LOAD
+# 段 p_align 仍是 0x1000（4 KB），上传 Play Console 触发：
+#   "您的应用不支持 16 KB 内存页面大小"
+# common-page-size 影响首段头部 padding，max-page-size 影响段间 padding；
+# 一起声明保证整个 .so 都按 16 KB 排版。32-bit `armeabi-v7a` 上 lld 仍
+# 会按 4 KB 算 vaddr 偏移，但加这个 flag 不会破坏 32-bit 链接，可以
+# 无脑统一开。
+if(ANDROID)
+  target_link_options(aria2_native PRIVATE
+    "-Wl,-z,max-page-size=16384"
+    "-Wl,-z,common-page-size=16384")
+endif()
+
 if(EXISTS "${ARIA2_NATIVE_LIBARIA2}")
   message(STATUS "aria2_native: linking against prebuilt libaria2 at ${ARIA2_NATIVE_LIBARIA2}")
   target_compile_definitions(aria2_native PRIVATE ARIA2_FFI_WITH_LIBARIA2=1)

@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # Build libaria2 (静态库) for iOS — device(arm64) + simulator(arm64/x86_64)。
 #
-# 输出：packages/aria2_native/prebuilt/ios/{arm64,sim}/{libaria2.a, include/..., deps/*.a}
+# 输出：packages/aria2_native/prebuilt/ios/{arm64,sim}/{libaria2.a, include/..., deps/}
 #
-# 依赖：Xcode CLT、autoconf/automake/libtool、与 macOS 一致的 Homebrew openssl/c-ares/sqlite3。
-# 注：iOS 静态依赖通常需要 OpenSSL-Universal（CocoaPods）或自行交叉编译。
-# 本脚本演示链路；正式发布请在 docs/BUILD_LIBARIA2.md 进一步细化。
+# 依赖：Xcode CLT、autoconf/automake/libtool。
+#
+# TLS 后端：与 macOS 保持一致使用 AppleTLS (SecureTransport)，由系统
+# Security.framework 提供，无需为 iOS 交叉编译 OpenSSL。原脚本曾尝试
+# 让 configure 自动探测 Homebrew openssl@3——但那是 macOS dylib，
+# `ld: building for 'iOS', but linking in dylib built for 'macOS'`，
+# 最终 ipa 链接必然失败。改 AppleTLS 后 deps/ 仅放可选静态依赖
+# （目前为空；c-ares/sqlite3 视需要可后续补齐）。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
