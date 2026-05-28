@@ -185,7 +185,18 @@ build_abi() {
     extract_to "openssl-$OPENSSL_VER.tar.gz" "$workdir/openssl"
     (
       cd "$workdir/openssl"
-      ./Configure no-shared no-tests no-engine \
+      # no-module / no-dynamic-engine: 关键！OpenSSL 3.0 的 OSSL_PROVIDER_load
+      # 即便 default/legacy provider 是 builtin，仍会先尝试 dlopen
+      # `<modulesdir>/<name>.so`。Android 设备上 modulesdir 是交叉编译机的
+      # macOS 路径（嵌进 libcrypto.a 的 MODULESDIR 字面量），dlopen 必失败
+      # 并把 `error:12800067:DSO support routines::could not load the shared
+      # library` 推到 OpenSSL error queue。下游 SSL_CTX_new 看到非空 error
+      # queue 直接返回 NULL，最终冒到 Dart 侧表现为
+      # `SSL initialization failed:`，HTTPS 全军覆没。加 no-module 让
+      # OSSL_PROVIDER_load 完全走 builtin 注册路径，跳过 dlopen。
+      # no-deprecated 不能加：aria2down 的 RAND_set_rand_method hook 是
+      # deprecated API，加了会编译失败。
+      ./Configure no-shared no-tests no-engine no-module no-dynamic-engine \
         --prefix="$prefix" \
         -D__ANDROID_API__="$API" \
         "$OPENSSL_TARGET"

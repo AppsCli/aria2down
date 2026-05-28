@@ -59,6 +59,13 @@ build_for() {
 
   local CFLAGS="-arch $ARCH -isysroot $SDK $MIN_FLAG -fembed-bitcode -O2 -fPIC"
 
+  # 注：本脚本目前依赖系统 / 外部 OpenSSL 静态库，没有就地编译 OpenSSL。
+  # 如要在 deps/ 提供 libssl.a / libcrypto.a，OpenSSL Configure 必须加
+  # `no-module no-dynamic-engine`，否则 OSSL_PROVIDER_load 在 iOS 沙盒里
+  # 会尝试 dlopen 一个不存在的 modulesdir 而把 OpenSSL error queue 污染
+  # 成 `DSO support routines::could not load the shared library`，进而
+  # 让 SSL_CTX_new 返回 NULL，HTTPS 全失败。详见
+  # scripts/build_libaria2_android_macos.sh OpenSSL configure 段注释。
   (cd "$BUILD_DIR" && \
     CC="$(xcrun -find clang)" \
     CXX="$(xcrun -find clang++)" \

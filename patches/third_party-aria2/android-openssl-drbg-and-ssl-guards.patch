@@ -1,8 +1,8 @@
 diff --git a/src/LibsslTLSContext.cc b/src/LibsslTLSContext.cc
-index 2cf78323..f8af64b0 100644
+index 2cf78323..e82ab613 100644
 --- a/src/LibsslTLSContext.cc
 +++ b/src/LibsslTLSContext.cc
-@@ -41,6 +41,10 @@
+@@ -41,12 +41,28 @@
  #include <openssl/pkcs12.h>
  #include <openssl/bio.h>
  
@@ -13,25 +13,52 @@ index 2cf78323..f8af64b0 100644
  #include "LogFactory.h"
  #include "Logger.h"
  #include "fmt.h"
-@@ -106,8 +110,16 @@ OpenSSLTLSContext::OpenSSLTLSContext(TLSSessionSide side, TLSVersion minVer)
+ #include "message.h"
+ #include "BufferedFile.h"
+ 
++namespace aria2 {
++// aria2down extension: when SSL_CTX_new() fails (Android SECCOMP / DRBG
++// edge case, see CHANGELOG), the original error string lives only in
++// OpenSSL's error queue and is consumed immediately by ERR_get_error().
++// Stash a human-readable copy here so OpenSSLTLSSession::getLastErrorString
++// can surface it as `SSL initialization failed: <cause>` instead of an
++// empty colon. Single global is fine: aria2 holds one Platform/Session
++// across the process and we're only here to surface a fatal startup
++// fault.
++std::string g_aria2down_lastSslCtxNewError;
++} // namespace aria2
++
+ namespace {
+ struct bio_deleter {
+   void operator()(BIO* b)
+@@ -106,8 +122,24 @@ OpenSSLTLSContext::OpenSSLTLSContext(TLSSessionSide side, TLSVersion minVer)
    }
    else {
      good_ = false;
-+    unsigned long err = ERR_get_error();
-     A2_LOG_ERROR(fmt("SSL_CTX_new() failed. Cause: %s",
+-    A2_LOG_ERROR(fmt("SSL_CTX_new() failed. Cause: %s",
 -                     ERR_error_string(ERR_get_error(), nullptr)));
-+                     ERR_error_string(err, nullptr)));
++    unsigned long err = ERR_get_error();
++    const char* causeStr = ERR_error_string(err, nullptr);
++    A2_LOG_ERROR(fmt("SSL_CTX_new() failed. Cause: %s", causeStr));
++    // Stash so OpenSSLTLSSession::getLastErrorString can surface this
++    // when the context is unusable and SSL_new(NULL) eventually fails.
++    if (causeStr != nullptr) {
++      g_aria2down_lastSslCtxNewError =
++          std::string("SSL_CTX_new failed: ") + causeStr;
++    }
++    else {
++      g_aria2down_lastSslCtxNewError = "SSL_CTX_new failed (no detail)";
++    }
 +#ifdef __ANDROID__
 +    // aria2 的 LogFactory 在 libaria2 FFI 模式下不会自动写入 Android logcat，
 +    // 把 SSL_CTX_new 失败原因显式打到 logcat 便于现场诊断。
 +    __android_log_print(ANDROID_LOG_INFO, "aria2down",
-+                        "SSL_CTX_new failed: err=%lu cause=%s", err,
-+                        ERR_error_string(err, nullptr));
++                        "SSL_CTX_new failed: err=%lu cause=%s", err, causeStr);
 +#endif
      return;
    }
  
-@@ -275,6 +287,13 @@ bool OpenSSLTLSContext::addP12CredentialFile(const std::string& p12file)
+@@ -275,6 +307,13 @@ bool OpenSSLTLSContext::addP12CredentialFile(const std::string& p12file)
  
  bool OpenSSLTLSContext::addSystemTrustedCACerts()
  {
@@ -45,8 +72,37 @@ index 2cf78323..f8af64b0 100644
    if (SSL_CTX_set_default_verify_paths(sslCtx_) != 1) {
      A2_LOG_INFO(fmt(MSG_LOADING_SYSTEM_TRUSTED_CA_CERTS_FAILED,
                      ERR_error_string(ERR_get_error(), nullptr)));
+diff --git a/src/LibsslTLSSession.cc b/src/LibsslTLSSession.cc
+index 697029c3..8c4e6301 100644
+--- a/src/LibsslTLSSession.cc
++++ b/src/LibsslTLSSession.cc
+@@ -336,8 +336,24 @@ int OpenSSLTLSSession::tlsAccept(TLSVersion& version)
+   return handshake(version);
+ }
+ 
++// aria2down patch: stashed cause from a failed SSL_CTX_new() (see
++// LibsslTLSContext.cc). When ssl_ is NULL we cannot call SSL_get_error,
++// but we still want `SSL initialization failed: <cause>` to carry the
++// real reason instead of an empty colon.
++extern std::string g_aria2down_lastSslCtxNewError;
++
+ std::string OpenSSLTLSSession::getLastErrorString()
+ {
++  // ssl_ is NULL when SSL_new() failed in init() — usually because the
++  // owning OpenSSLTLSContext had SSL_CTX_new() return NULL during
++  // Platform::setUp. Surface the captured cause so the caller's
++  // `throw DL_ABORT_EX(fmt(EX_SSL_INIT_FAILURE, ...))` is actionable.
++  if (ssl_ == nullptr) {
++    if (!g_aria2down_lastSslCtxNewError.empty()) {
++      return g_aria2down_lastSslCtxNewError;
++    }
++    return "TLS context is not initialized";
++  }
+   if (rv_ <= 0) {
+     int sslError = SSL_get_error(ssl_, rv_);
+     switch (sslError) {
 diff --git a/src/Platform.cc b/src/Platform.cc
-index 9f3ddb25..a71178db 100644
+index 9f3ddb25..52d730af 100644
 --- a/src/Platform.cc
 +++ b/src/Platform.cc
 @@ -45,6 +45,15 @@
@@ -121,7 +177,7 @@ index 9f3ddb25..a71178db 100644
  Platform::Platform() { setUp(); }
  
  Platform::~Platform() { tearDown(); }
-@@ -118,6 +176,22 @@ bool Platform::setUp()
+@@ -118,6 +176,53 @@ bool Platform::setUp()
  #endif // ENABLE_NLS
  
  #ifdef HAVE_OPENSSL
@@ -131,14 +187,45 @@ index 9f3ddb25..a71178db 100644
 +  // Android ROM 把 getrandom(2) SECCOMP 拦截后，OpenSSL 3.0 的 DRBG 永远
 +  // 实例化失败，下游 RAND_bytes / SSL_CTX_new / peer-id 全连锁崩盘。
 +  {
++    // ADD_ALL_CIPHERS / ADD_ALL_DIGESTS: 在 OpenSSL 3.0 上虽是 NOOP（已被
++    // provider model 替代），但加上保证如果将来动态链接到 1.1.1（Android
++    // 系统库）也能 fire 完整初始化路径。
 +    int initRv = ::OPENSSL_init_crypto(
-+        OPENSSL_INIT_NO_LOAD_CONFIG | OPENSSL_INIT_NO_ATEXIT, nullptr);
++        OPENSSL_INIT_NO_LOAD_CONFIG | OPENSSL_INIT_NO_ATEXIT
++            | OPENSSL_INIT_ADD_ALL_CIPHERS | OPENSSL_INIT_ADD_ALL_DIGESTS,
++        nullptr);
 +    __android_log_print(ANDROID_LOG_INFO, "aria2down",
-+                        "OPENSSL_init_crypto(no-config,no-atexit) -> %d",
++                        "OPENSSL_init_crypto(no-config,no-atexit,add-all) "
++                        "-> %d",
 +                        initRv);
++    // RAND_METHOD hook：让所有 legacy 路径（RAND_bytes / RAND_priv_bytes
++    // / SimpleRandomizer 等）经过 devurandom_bytes_impl。
 +    int setRv = ::RAND_set_rand_method(&devurandom_method);
 +    __android_log_print(ANDROID_LOG_INFO, "aria2down",
 +                        "RAND_set_rand_method -> %d (devurandom)", setRv);
++    // 主动 seed：OpenSSL 3.0 SSL_CTX_new 内部走 RAND_priv_bytes_ex(libctx,
++    // ...)，可能转发到 default provider 的 EVP_RAND DRBG，而不是上面
++    // hook 的 method->bytes。先用 /dev/urandom 直读 256 字节高质量熵
++    // RAND_seed 进去，让 default DRBG 提前完成 instantiate，避开后续
++    // SSL_CTX_new 内部触发 getrandom() syscall（在 MIUI / 类似 SECCOMP
++    // 拦截设备上失败），让 HTTPS 下载在所有 Android 设备上稳定工作。
++    unsigned char seed_buf[256];
++    if (devurandom_bytes_impl(seed_buf, sizeof(seed_buf)) == 1) {
++      ::RAND_seed(seed_buf, sizeof(seed_buf));
++      __android_log_print(
++          ANDROID_LOG_INFO, "aria2down",
++          "RAND_seed(%zu bytes from /dev/urandom) OK", sizeof(seed_buf));
++    }
++    else {
++      __android_log_print(ANDROID_LOG_ERROR, "aria2down",
++                          "RAND_seed: failed to read /dev/urandom");
++    }
++    // 自检：试调一次 RAND_priv_bytes，失败时立刻 logcat 报警，方便用户
++    // 现场诊断（adb logcat -s aria2down）。
++    unsigned char test_buf[16];
++    int testRv = ::RAND_priv_bytes(test_buf, sizeof(test_buf));
++    __android_log_print(ANDROID_LOG_INFO, "aria2down",
++                        "RAND_priv_bytes self-test -> %d (1=OK)", testRv);
 +  }
 +#  endif // __ANDROID__
  #  if OPENSSL_VERSION_NUMBER >= 0x30000000L

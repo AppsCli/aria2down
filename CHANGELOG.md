@@ -4,6 +4,35 @@
 
 ## [Unreleased]
 
+### 修复（Android：HTTPS 下载报 `SSL initialization failed:`，OpenSSL 3.0 静态库 + DRBG 路径多重隐患）
+
+用户反馈："Android 上拿 commit `5daf895` 的 prebuilt 跑，HTTPS 下载报错 `SSL initialization failed:`。"
+
+`SSL initialization failed:` 由 [SocketCore::tlsConnect](third_party/aria2/src/SocketCore.cc) 在 `tlsSession_->init()` 失败时抛出（仅 OpenSSL TLS 后端，即 Android / Linux / 走 OpenSSL 的 iOS；macOS 走 AppleTLS、Windows 走 WinTLS 不会到这条路径）。沿着调用链回溯：[OpenSSLTLSSession::init](third_party/aria2/src/LibsslTLSSession.cc) `SSL_new(ctx->getSSLCtx())` 返回 NULL → `getSSLCtx()` 自身是 NULL → 上一级 `OpenSSLTLSContext` 构造时 `SSL_CTX_new(SSLv23_method())` 已返回 NULL（aria2down 旧补丁加了 null guard 让 daemon 不再立刻 segfault，但 HTTPS 也就全军覆没）。
+
+根因有**两层**叠加：
+
+1. **OpenSSL 静态库被 macOS 编译机的 DSO 路径污染。** [`packages/aria2_native/prebuilt/android/<abi>/deps/libcrypto.a`](packages/aria2_native/prebuilt/android/) 内 `strings` 能看到 `MODULESDIR: "/Users/iotserv/git/aria2down/build/.../install/lib/ossl-modules"` 和 `OPENSSLDIR: "/Users/iotserv/git/aria2down/build/.../install/ssl"`——这是交叉编译时 OpenSSL `./Configure` 留下的字面量，并不会在 Android 设备上存在。OpenSSL 3.0 的 `OSSL_PROVIDER_load(NULL, "default")` 即便 default provider 是 builtin，仍然先把 `<modulesdir>/default.so` dlopen 一遍，dlopen 失败把 `error:12800067:DSO support routines::could not load the shared library` 推到 OpenSSL error queue。后续 `SSL_CTX_new` 看见非空 error queue 直接放弃。
+2. **OpenSSL 3.0 的 EVP_RAND DRBG 仍可能走 getrandom syscall。** 上一版 patch 的 `RAND_set_rand_method(&devurandom_method)` 只覆盖 deprecated 的 `RAND_bytes` 调用链；OpenSSL 3.0 内部 `SSL_CTX_new_ex` 调的 `RAND_priv_bytes_ex(libctx, ...)`，在 libctx ≠ NULL 时会转发到 default provider 的 EVP_RAND，绕过 method hook。在 MIUI / 类似 SECCOMP 拦截 ROM 上 DRBG 实例化失败，连锁导致 `cookie_hmac_key` 生成失败 → `SSL_CTX_new` 返回 NULL。
+
+同时上一版 patch 还有**两个用户可见的盲区**：
+
+- `OpenSSLTLSSession::init` 在 `ssl_=NULL` 时 `rv_=1` 没改，[`getLastErrorString()`](third_party/aria2/src/LibsslTLSSession.cc) 走 `else return "";` → 用户看到的 `SSL initialization failed:` 后面是空字符串，根本不知道是哪一步失败的；
+- `LibsslTLSContext` 构造时 `ERR_get_error()` 已经把 SSL_CTX_new 失败的错误从 queue 里**消费**掉了，即使想后取也取不到。
+
+**修复（三件套）**：
+
+1. **剔除 OpenSSL DSO 路径**：[`scripts/build_libaria2_android_macos.sh`](scripts/build_libaria2_android_macos.sh) 的 OpenSSL `./Configure` 加 `no-module no-dynamic-engine`。前者让 `OSSL_PROVIDER_load` 完全走 builtin 注册路径不再 dlopen，后者剔除 dynamic engine 框架，杜绝 DSO 错误污染 error queue。`no-deprecated` 不加（aria2down 的 `RAND_set_rand_method` hook 是 deprecated API，加了会编译失败）。同步在 [`scripts/build_libaria2_android.sh`](scripts/build_libaria2_android.sh) / [`scripts/build_libaria2_ios.sh`](scripts/build_libaria2_ios.sh) 加注释，要求外部 / Docker 构建路径也带这两个 flag。
+2. **主动喂 DRBG**：[`patches/third_party-aria2/android-openssl-drbg-and-ssl-guards.patch`](patches/third_party-aria2/android-openssl-drbg-and-ssl-guards.patch) 在 `Platform::setUp` 的 Android 分支里，`RAND_set_rand_method(&devurandom_method)` 之后立刻：(a) 用 `devurandom_bytes_impl` 直读 256 字节 `/dev/urandom`，(b) `RAND_seed(buf, 256)` 喂给 default DRBG，(c) `RAND_priv_bytes(test, 16)` 自检一次。这样即使 EVP_RAND DRBG 绕过了 method hook，DRBG 也已经被预先实例化，`SSL_CTX_new` 内部 `RAND_priv_bytes_ex(libctx, ...)` 直接命中 cached state 即可。`OPENSSL_init_crypto` 同时补上 `ADD_ALL_CIPHERS | ADD_ALL_DIGESTS`（在 3.0 上是 NOOP，但保证未来如果链接到 1.1.1 也能 fire 完整初始化）。三件 logcat 输出 (`adb logcat -s aria2down`) 把所有自检结果挂上去。
+3. **诊断信息穿透到用户层**：补丁给 [`LibsslTLSContext.cc`](third_party/aria2/src/LibsslTLSContext.cc) 加一个 `aria2::g_aria2down_lastSslCtxNewError` 全局字符串，在 `SSL_CTX_new` 失败时把 `ERR_error_string` 复制一份。配套 [`LibsslTLSSession.cc`](third_party/aria2/src/LibsslTLSSession.cc) 改 `getLastErrorString()`：检测到 `ssl_=NULL`（即 `SSL_new(NULL)` 失败的链头）就回退到 `g_aria2down_lastSslCtxNewError`，用户层 throw 的 `SSL initialization failed: <真实 cause>` 不再是空冒号。
+
+**验证**：
+
+- `scripts/build_libaria2_android_macos.sh` 重新生成 armeabi-v7a / arm64-v8a / x86_64 三套 prebuilt：`nm libcrypto.a` 仍含 DSO 框架的 dead code（OpenSSL 静态库内部统一编译），但 default/legacy provider 是 builtin（`init_function != NULL`），运行时 `provider_init` 跳过整个 DSO 加载块；libaria2.a 内 `strings` 命中 4 个新诊断字面量（`OPENSSL_init_crypto(...,add-all)`、`RAND_seed(... from /dev/urandom)`、`RAND_priv_bytes self-test`、`TLS context is not initialized`）。
+- `flutter build apk --debug --target-platform android-arm64,android-arm,android-x64`：链接通过，三 ABI 的 `lib/<abi>/libaria2_native.so` 内同时含 capability 字面量（功能受限红条消失）和上述新诊断字面量。
+
+**用户后续操作**：拉到此 commit + 重跑 `./scripts/build_libaria2_android_macos.sh` 刷新 prebuilt → `flutter build apk` 重打包。设备上 `adb logcat -s aria2down` 可以观察四行自检（`OPENSSL_init_crypto(...) -> 1` / `RAND_set_rand_method -> 1` / `RAND_seed(256 bytes from /dev/urandom) OK` / `RAND_priv_bytes self-test -> 1`）。如果**仍然**报 `SSL initialization failed:`，错误字符串后面现在一定有具体 cause（OpenSSL error 文本），把它和 logcat `aria2down` 一并贴出便于继续诊断。
+
 ### 修复（设置页：「库引擎运行在功能受限模式」红条挥之不去，因 aria2 公开 API 扩展补丁文件被遗漏）
 
 用户反馈："macOS 应用启动后设置页一直挂着一条红色 banner 提示『库引擎运行在功能受限模式』，缺四项能力（`removeDownloadResult` / `listReserved` / `listDownloadResults` / `downloadHandleExt`）。"

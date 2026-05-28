@@ -73,6 +73,12 @@ for ABI in "${ABIS[@]}"; do
       export RANLIB=$TOOLS/llvm-ranlib
       export STRIP=$TOOLS/llvm-strip
       PREFIX=/install
+      # 注：本脚本依赖 Dockerfile.android 内预装的 OpenSSL 静态库。
+      # 该静态库**必须**用 `no-module no-dynamic-engine` 配置编译，否则
+      # Android 设备上 OSSL_PROVIDER_load 会 dlopen 一个不存在的
+      # modulesdir 污染 OpenSSL error queue，导致 SSL_CTX_new 返回 NULL、
+      # HTTPS 报 SSL initialization failed。详见
+      # scripts/build_libaria2_android_macos.sh OpenSSL configure 段注释。
       /aria2/configure \
         --host=$HOST_TRIPLET --prefix=$PREFIX \
         --enable-libaria2 --enable-static --disable-shared \
