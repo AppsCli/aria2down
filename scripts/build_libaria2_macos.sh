@@ -30,6 +30,48 @@ fi
 
 command -v autoreconf >/dev/null || { echo "需要 autoconf/automake/libtool" >&2; exit 1; }
 
+# -----------------------------------------------------------------------------
+# 应用 aria2down 本地补丁（in-place + trap 自动还原）
+#
+# patches/third_party-aria2/ 下两个补丁里：
+#   1) android-openssl-drbg-and-ssl-guards.patch
+#      所有改动都在 `#ifdef __ANDROID__` 守护里，macOS 编译期间不会引入任何
+#      新代码，但 patch 命令必须能干净 apply 才能保证子模块状态可预测。
+#   2) aria2-public-api-extensions.patch
+#      暴露 ARIA2DOWN_HAS_* 特性宏 + 公开 API。**这是 macOS 必须的补丁**——
+#      不打就会得到「设置页：库引擎运行在功能受限模式」红条。
+# 退出（无论成功失败）时 trap 自动 `git checkout` 子模块工作树，保证
+# third_party/aria2 在脚本结束后始终干净。
+# -----------------------------------------------------------------------------
+ARIA2_PATCHED_FILES=(
+  src/LibsslTLSContext.cc
+  src/Platform.cc
+  src/SimpleRandomizer.cc
+  src/aria2api.cc
+  src/includes/aria2/aria2.h
+)
+revert_aria2_patches() {
+  (cd "$ARIA2" && git checkout -- "${ARIA2_PATCHED_FILES[@]}" 2>/dev/null) || true
+}
+trap revert_aria2_patches EXIT
+
+# 起点必须是干净源——把上次脚本中断 / 用户手动 patch 残留先 revert，再
+# `patch -p1` 一次性应用补丁。避免 `patch -N` 撞到「previously applied」
+# 而返回非零导致脚本提前退出。
+revert_aria2_patches
+for p in \
+  "$ROOT/patches/third_party-aria2/android-openssl-drbg-and-ssl-guards.patch" \
+  "$ROOT/patches/third_party-aria2/aria2-public-api-extensions.patch"; do
+  if [[ -f "$p" ]]; then
+    (cd "$ARIA2" && patch -p1 --no-backup-if-mismatch <"$p") || {
+      echo "应用补丁失败：$p" >&2
+      exit 1
+    }
+  else
+    echo "[warn] 缺少补丁 $p" >&2
+  fi
+done
+
 cd "$ARIA2"
 if [[ ! -f configure ]]; then
   autoreconf -i

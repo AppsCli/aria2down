@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+### 修复（设置页：「库引擎运行在功能受限模式」红条挥之不去，因 aria2 公开 API 扩展补丁文件被遗漏）
+
+用户反馈："macOS 应用启动后设置页一直挂着一条红色 banner 提示『库引擎运行在功能受限模式』，缺四项能力（`removeDownloadResult` / `listReserved` / `listDownloadResults` / `downloadHandleExt`）。"
+
+- **根因**：[`patches/third_party-aria2/`](patches/third_party-aria2/) 目录在最近一次重构中**只保留了 `android-openssl-drbg-and-ssl-guards.patch`**，而 aria2down 维护的「公开 API 扩展」补丁——即在 aria2 的 [`src/includes/aria2/aria2.h`](third_party/aria2/src/includes/aria2/aria2.h) 暴露 `aria2::removeDownloadResult` / `purgeDownloadResult` / `getReservedDownload` / `getDownloadResults` 公共 API，并给 `DownloadHandle` 增加 5 个扩展 getter（`getErrorMessage` / `getNumSeeders` / `isSeeder` / `getVerifiedLength` / `isVerifyIntegrityPending`），以及 4 个 `ARIA2DOWN_HAS_*` 特性宏——这份补丁文件**从未实际落盘**。结果：`scripts/build_libaria2_*.sh` 全部走未打补丁的上游源码编译，`aria2_ffi.cc` 编译期 `#ifdef ARIA2DOWN_HAS_*` 全部走 `#else` 软降级路径，`aria2_ffi_get_capabilities` 返回空 JSON 数组，[`libraryCapabilitiesProvider`](lib/providers/library_capabilities_provider.dart) 把所有 4 项 capability 标记缺失，UI 弹红条不退。
+- **修复**：
+  1. 在 [`patches/third_party-aria2/aria2-public-api-extensions.patch`](patches/third_party-aria2/aria2-public-api-extensions.patch) 重建该补丁（280 行 unified diff，触达 `src/aria2api.cc` + `src/includes/aria2/aria2.h` 两份文件）。
+     - 头文件加 4 个 `ARIA2DOWN_HAS_*` 宏 + `DownloadHandle` 5 个 pure-virtual getter + 4 个新公开函数签名；
+     - 实现文件给 `RequestGroupDH` 注入 `DownloadEngine*` 并实现 5 个 getter（`getNumSeeders` 走 `BtRegistry::get()->peerStorage->getUsedPeers()` + `countSeeder`，`getVerifiedLength` / `isVerifyIntegrityPending` 走 `CheckIntegrityMan::isPicked/isQueued`，镜像 [`RpcMethodImpl::gatherProgress*`](third_party/aria2/src/RpcMethodImpl.cc) 的逻辑）；`DownloadResultDH` 给停止任务的 5 个 getter 返回安全默认值；4 个公开 API 是 `RequestGroupMan` 现成方法的薄包装。
+  2. 在所有 5 份 `scripts/build_libaria2_*.sh` 里加上「`configure` 前 `patch -p1 -N` + 退出时 trap `git checkout` 还原子模块工作树」段落，保证 `third_party/aria2` 始终干净，且补丁幂等可重跑。
+  3. [`patches/third_party-aria2/README.md`](patches/third_party-aria2/README.md) 与 [`docs/BUILD_LIBARIA2.md`](docs/BUILD_LIBARIA2.md) 同步登记新补丁与新流程。
+- **验证**：`patch -p1 --dry-run -N` 两个补丁可独立 + 组合干净应用到当前子模块 commit；prebuilt 重建一次（`./scripts/build_libaria2_macos.sh` 或对应平台脚本）即生效。
+- **后续操作（用户侧）**：重新跑一次 `./scripts/build_libaria2_<platform>.sh` 刷新 `packages/aria2_native/prebuilt/<platform>/<arch>/{libaria2.a, include/aria2/aria2.h}`，然后 `flutter clean && flutter run` 即可看到红条消失、四项能力全部启用。
+
 ### 修复（Android：在 MIUI / 类似沙盒上启动即崩溃，aria2 daemon 起不来）
 
 在部分 Android 设备（已知 **MIUI 12+ / Redmi K30 5G** 等机型）上，首次进入「本机引擎」模式会触发两段连环 native crash，App 还没显示首屏就被 Bionic 杀掉：

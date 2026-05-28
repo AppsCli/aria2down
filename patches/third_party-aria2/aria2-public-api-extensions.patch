@@ -1,0 +1,280 @@
+diff --git a/src/aria2api.cc b/src/aria2api.cc
+index c8113986..35b4c49a 100644
+--- a/src/aria2api.cc
++++ b/src/aria2api.cc
+@@ -62,8 +62,13 @@
+ #include "SingletonHolder.h"
+ #include "Notifier.h"
+ #include "ApiCallbackDownloadEventListener.h"
++#include "CheckIntegrityMan.h"
++#include "CheckIntegrityEntry.h"
+ #ifdef ENABLE_BITTORRENT
+ #  include "bittorrent_helper.h"
++#  include "BtRegistry.h"
++#  include "PeerStorage.h"
++#  include "Peer.h"
+ #endif // ENABLE_BITTORRENT
+ 
+ namespace aria2 {
+@@ -656,8 +661,9 @@ KeyVals getRequestOptions(const std::shared_ptr<Option>& option)
+ 
+ namespace {
+ struct RequestGroupDH : public DownloadHandle {
+-  RequestGroupDH(const std::shared_ptr<RequestGroup>& group)
+-      : group(group), ts(group->calculateStat())
++  RequestGroupDH(const std::shared_ptr<RequestGroup>& group,
++                 DownloadEngine* engine)
++      : group(group), ts(group->calculateStat()), engine(engine)
+   {
+   }
+   virtual ~RequestGroupDH() = default;
+@@ -791,8 +797,60 @@ struct RequestGroupDH : public DownloadHandle {
+   {
+     return getRequestOptions(group->getOption());
+   }
++  // aria2down extensions: mirror the small slice of
++  // RpcMethodImpl::gatherProgress{,BitTorrent} that the FFI shim
++  // exposes to the Dart side as tellStatus extras. The macro guards in
++  // <aria2/aria2.h> mean every override here can be unconditional.
++  virtual const std::string& getErrorMessage() CXX11_OVERRIDE
++  {
++    // Active/waiting groups do not have a stable error message until
++    // they transition to DownloadResult. Return empty so the FFI shim
++    // emits no `errorMessage` key, matching JSON-RPC behavior.
++    return A2STR::NIL;
++  }
++  virtual int getNumSeeders() CXX11_OVERRIDE
++  {
++#ifdef ENABLE_BITTORRENT
++    if (!engine) return 0;
++    auto& reg = engine->getBtRegistry();
++    if (!reg) return 0;
++    BtObject* btObject = reg->get(group->getGID());
++    if (!btObject || !btObject->peerStorage) return 0;
++    auto& peers = btObject->peerStorage->getUsedPeers();
++    return static_cast<int>(countSeeder(peers.begin(), peers.end()));
++#else
++    return 0;
++#endif // ENABLE_BITTORRENT
++  }
++  virtual bool isSeeder() CXX11_OVERRIDE { return group->isSeeder(); }
++  virtual int64_t getVerifiedLength() CXX11_OVERRIDE
++  {
++    if (!engine) return 0;
++    auto& ciman = engine->getCheckIntegrityMan();
++    if (!ciman) return 0;
++    RequestGroup* raw = group.get();
++    if (ciman->isPicked(
++            [raw](const CheckIntegrityEntry& ent) {
++              return ent.getRequestGroup() == raw;
++            })) {
++      return ciman->getPickedEntry()->getCurrentLength();
++    }
++    return 0;
++  }
++  virtual bool isVerifyIntegrityPending() CXX11_OVERRIDE
++  {
++    if (!engine) return false;
++    auto& ciman = engine->getCheckIntegrityMan();
++    if (!ciman) return false;
++    RequestGroup* raw = group.get();
++    return ciman->isQueued(
++        [raw](const CheckIntegrityEntry& ent) {
++          return ent.getRequestGroup() == raw;
++        });
++  }
+   std::shared_ptr<RequestGroup> group;
+   TransferStat ts;
++  DownloadEngine* engine;
+ };
+ } // namespace
+ 
+@@ -863,6 +921,17 @@ struct DownloadResultDH : public DownloadHandle {
+   {
+     return getRequestOptions(dr->option);
+   }
++  // aria2down extensions: stopped tasks have no live peer/checksum
++  // state, so most extras collapse to harmless defaults; only
++  // resultMessage carries information for the UI to surface.
++  virtual const std::string& getErrorMessage() CXX11_OVERRIDE
++  {
++    return dr->resultMessage;
++  }
++  virtual int getNumSeeders() CXX11_OVERRIDE { return 0; }
++  virtual bool isSeeder() CXX11_OVERRIDE { return false; }
++  virtual int64_t getVerifiedLength() CXX11_OVERRIDE { return 0; }
++  virtual bool isVerifyIntegrityPending() CXX11_OVERRIDE { return false; }
+   std::shared_ptr<DownloadResult> dr;
+ };
+ } // namespace
+@@ -873,7 +942,12 @@ DownloadHandle* getDownloadHandle(Session* session, A2Gid gid)
+   auto& rgman = e->getRequestGroupMan();
+   std::shared_ptr<RequestGroup> group = rgman->findGroup(gid);
+   if (group) {
+-    return new RequestGroupDH(group);
++    // aria2down extension: thread the engine pointer through to the
++    // handle so getNumSeeders / getVerifiedLength /
++    // isVerifyIntegrityPending can reach BtRegistry and
++    // CheckIntegrityMan. The handle lifetime is bounded by the next
++    // run()/sessionFinal() call, identical to the legacy path.
++    return new RequestGroupDH(group, e.get());
+   }
+   else {
+     std::shared_ptr<DownloadResult> ds = rgman->findDownloadResult(gid);
+@@ -886,4 +960,44 @@ DownloadHandle* getDownloadHandle(Session* session, A2Gid gid)
+ 
+ void deleteDownloadHandle(DownloadHandle* dh) { delete dh; }
+ 
++// aria2down public API extensions ----------------------------------------
++//
++// Out-of-tree additions backing the ARIA2DOWN_HAS_* feature macros in
++// <aria2/aria2.h>. Each function is a thin shim over an existing
++// internal RequestGroupMan method: the work the upstream JSON-RPC
++// handlers already do, now reachable through the public libaria2 API
++// so the FFI shim can call into it without spinning up an RPC server.
++
++std::vector<A2Gid> getReservedDownload(Session* session)
++{
++  auto& e = session->context->reqinfo->getDownloadEngine();
++  std::vector<A2Gid> res;
++  for (const auto& group : e->getRequestGroupMan()->getReservedGroups()) {
++    res.push_back(group->getGID());
++  }
++  return res;
++}
++
++std::vector<A2Gid> getDownloadResults(Session* session)
++{
++  auto& e = session->context->reqinfo->getDownloadEngine();
++  std::vector<A2Gid> res;
++  for (const auto& dr : e->getRequestGroupMan()->getDownloadResults()) {
++    res.push_back(dr->gid->getNumericId());
++  }
++  return res;
++}
++
++int removeDownloadResult(Session* session, A2Gid gid)
++{
++  auto& e = session->context->reqinfo->getDownloadEngine();
++  return e->getRequestGroupMan()->removeDownloadResult(gid) ? 0 : -1;
++}
++
++void purgeDownloadResult(Session* session)
++{
++  auto& e = session->context->reqinfo->getDownloadEngine();
++  e->getRequestGroupMan()->purgeDownloadResult();
++}
++
+ } // namespace aria2
+diff --git a/src/includes/aria2/aria2.h b/src/includes/aria2/aria2.h
+index c704a64c..e3786640 100644
+--- a/src/includes/aria2/aria2.h
++++ b/src/includes/aria2/aria2.h
+@@ -42,6 +42,18 @@
+ #include <string>
+ #include <vector>
+ 
++/* aria2down public API extensions (out-of-tree patch maintained in
++ * patches/third_party-aria2/aria2-public-api-extensions.patch).
++ *
++ * These macros let the FFI shim (packages/aria2_native/src/aria2_ffi.cc)
++ * detect at compile time whether the patched additions below are
++ * available. An unpatched upstream libaria2 simply leaves them undefined
++ * and the FFI shim falls back to the legacy soft-degraded paths. */
++#define ARIA2DOWN_HAS_REMOVE_DOWNLOAD_RESULT 1
++#define ARIA2DOWN_HAS_LIST_RESERVED 1
++#define ARIA2DOWN_HAS_LIST_DOWNLOAD_RESULTS 1
++#define ARIA2DOWN_HAS_DOWNLOAD_HANDLE_EXT 1
++
+ // Libaria2: The aim of this library is provide same functionality
+ // available in RPC methods. The function signatures are not
+ // necessarily the same, because we can take advantage of the direct,
+@@ -863,6 +875,32 @@ public:
+    * functions.
+    */
+   virtual KeyVals getOptions() = 0;
++  /* aria2down extensions (guarded by ARIA2DOWN_HAS_DOWNLOAD_HANDLE_EXT). */
++  /**
++   * Returns the human-readable error message for a stopped/error
++   * download. For active downloads, returns empty string.
++   */
++  virtual const std::string& getErrorMessage() = 0;
++  /**
++   * Returns the number of seeders the client has connected to. For
++   * non-BitTorrent downloads, returns 0.
++   */
++  virtual int getNumSeeders() = 0;
++  /**
++   * Returns true if this BitTorrent download is in seed mode. For
++   * non-BitTorrent downloads, returns false.
++   */
++  virtual bool isSeeder() = 0;
++  /**
++   * Returns the number of verified bytes when an integrity check is
++   * actively running. Returns 0 otherwise.
++   */
++  virtual int64_t getVerifiedLength() = 0;
++  /**
++   * Returns true when an integrity check is queued but not yet
++   * started. Returns false otherwise.
++   */
++  virtual bool isVerifyIntegrityPending() = 0;
+ };
+ 
+ /**
+@@ -887,6 +925,55 @@ DownloadHandle* getDownloadHandle(Session* session, A2Gid gid);
+  */
+ void deleteDownloadHandle(DownloadHandle* dh);
+ 
++/* aria2down public API extensions ----------------------------------------
++ *
++ * The following functions are out-of-tree additions maintained by the
++ * aria2down project; see patches/third_party-aria2/. Callers should
++ * guard usage with the matching ARIA2DOWN_HAS_* macros at the top of
++ * this header so the same source compiles against an unpatched
++ * upstream libaria2.
++ */
++
++/**
++ * @function
++ *
++ * Returns the array of GIDs in the waiting queue (reservedGroups_).
++ * Useful for enumerating tasks that JSON-RPC ``aria2.tellWaiting``
++ * would return. Guarded by :c:macro:`ARIA2DOWN_HAS_LIST_RESERVED`.
++ */
++std::vector<A2Gid> getReservedDownload(Session* session);
++
++/**
++ * @function
++ *
++ * Returns the array of GIDs in the stopped/completed/removed result
++ * list (downloadResults_). Mirrors JSON-RPC ``aria2.tellStopped`` for
++ * enumeration purposes. Guarded by
++ * :c:macro:`ARIA2DOWN_HAS_LIST_DOWNLOAD_RESULTS`.
++ */
++std::vector<A2Gid> getDownloadResults(Session* session);
++
++/**
++ * @function
++ *
++ * Removes the stopped/completed/removed download identified by |gid|
++ * from the result list. Returns 0 on success and a negative error
++ * code if the gid is not present. Mirrors JSON-RPC
++ * ``aria2.removeDownloadResult``. Guarded by
++ * :c:macro:`ARIA2DOWN_HAS_REMOVE_DOWNLOAD_RESULT`.
++ */
++int removeDownloadResult(Session* session, A2Gid gid);
++
++/**
++ * @function
++ *
++ * Purges all entries in the stopped/completed/removed result list.
++ * Mirrors JSON-RPC ``aria2.purgeDownloadResult``. Guarded by
++ * :c:macro:`ARIA2DOWN_HAS_REMOVE_DOWNLOAD_RESULT` (same compile-time
++ * gate as :func:`removeDownloadResult`).
++ */
++void purgeDownloadResult(Session* session);
++
+ } // namespace aria2
+ 
+ #endif // ARIA2_H

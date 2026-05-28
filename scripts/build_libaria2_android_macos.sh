@@ -263,13 +263,21 @@ build_abi() {
   cp -a "$ARIA2_SRC" "$workdir/aria2"
   (
     cd "$workdir/aria2"
-    PATCH_FILE="$ROOT/patches/third_party-aria2/android-openssl-drbg-and-ssl-guards.patch"
-    if [[ -f "$PATCH_FILE" ]]; then
-      # -N：已打过则跳过，便于增量重编。
-      patch -p1 -N < "$PATCH_FILE"
-    else
-      echo "警告：未找到 $PATCH_FILE，将使用未打补丁的上游 aria2" >&2
-    fi
+    # 两个补丁都必须应用：
+    #   1) android-openssl-drbg-and-ssl-guards.patch  Android SECCOMP/DRBG 兜底
+    #   2) aria2-public-api-extensions.patch          ARIA2DOWN_HAS_* 公开 API
+    # FFI shim 编译时按宏决定走 native fast path 还是 Dart 软降级。后者缺失
+    # 会让设置页一直显示「库引擎运行在功能受限模式」红条。
+    for PATCH_FILE in \
+      "$ROOT/patches/third_party-aria2/android-openssl-drbg-and-ssl-guards.patch" \
+      "$ROOT/patches/third_party-aria2/aria2-public-api-extensions.patch"; do
+      if [[ -f "$PATCH_FILE" ]]; then
+        # -N：已打过则跳过，便于增量重编。
+        patch -p1 -N < "$PATCH_FILE"
+      else
+        echo "警告：未找到 $PATCH_FILE，将使用未打补丁的上游 aria2" >&2
+      fi
+    done
     if [[ ! -f configure ]]; then
       autoreconf -i
     fi

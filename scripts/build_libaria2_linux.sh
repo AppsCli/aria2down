@@ -23,6 +23,32 @@ TARGET="$ROOT/packages/aria2_native/prebuilt/linux/$ARCH_DIR"
 if [[ ! -d "$ARIA2" ]]; then
   echo "缺少子模块 third_party/aria2" >&2; exit 1
 fi
+
+# 应用 aria2down 本地补丁——详见 build_libaria2_macos.sh 同名段落。在 Linux
+# 上 OpenSSL DRBG 补丁的 `#ifdef __ANDROID__` 守护让它对本平台编译没有副作用，
+# `aria2-public-api-extensions.patch` 则是必须的（FFI shim 用于探测能力宏）。
+ARIA2_PATCHED_FILES=(
+  src/LibsslTLSContext.cc
+  src/Platform.cc
+  src/SimpleRandomizer.cc
+  src/aria2api.cc
+  src/includes/aria2/aria2.h
+)
+revert_aria2_patches() {
+  (cd "$ARIA2" && git checkout -- "${ARIA2_PATCHED_FILES[@]}" 2>/dev/null) || true
+}
+trap revert_aria2_patches EXIT
+revert_aria2_patches  # 见 build_libaria2_macos.sh 同名段落：始终从干净源 patch
+for p in \
+  "$ROOT/patches/third_party-aria2/android-openssl-drbg-and-ssl-guards.patch" \
+  "$ROOT/patches/third_party-aria2/aria2-public-api-extensions.patch"; do
+  if [[ -f "$p" ]]; then
+    (cd "$ARIA2" && patch -p1 --no-backup-if-mismatch <"$p") || {
+      echo "应用补丁失败：$p" >&2; exit 1
+    }
+  fi
+done
+
 cd "$ARIA2"
 [[ -f configure ]] || autoreconf -i
 

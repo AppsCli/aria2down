@@ -104,16 +104,18 @@ ENABLE_SQLITE3=1 ./scripts/build_libaria2_android_macos.sh
 ### aria2 本地补丁（必带，非可选）
 
 子模块 [`third_party/aria2/`](../third_party/aria2/) 保持指向上游干净提交；
-Android / FFI 相关修改存放在 [`patches/third_party-aria2/`](../patches/third_party-aria2/)，
-`build_libaria2_android_macos.sh` 在 worktree 副本上 `patch -p1` 后交叉编译。
+所有 aria2down 维护的源码改动以 patch 形式存放在
+[`patches/third_party-aria2/`](../patches/third_party-aria2/)，由所有
+`scripts/build_libaria2_*.sh` 在 `configure` 前 `patch -p1 -N` 注入，并通过 trap 在脚本
+退出时 `git checkout` 还原子模块工作树。
 
-| 补丁 / 文件 | 目的 |
+| 补丁 | 目的 |
 | --- | --- |
-| `patches/third_party-aria2/android-openssl-drbg-and-ssl-guards.patch` | **Android OpenSSL DRBG 绕路**（`Platform.cc` / `SimpleRandomizer.cc`）+ `LibsslTLSContext` null guard；详见 [CHANGELOG](../CHANGELOG.md) |
-| 子模块内 `src/aria2api.cc` / `aria2.h`（若已合入子模块提交） | 暴露 `removeDownloadResult` 等给 libaria2 公共 API（FFI 通过 `ARIA2DOWN_HAS_*` 探测） |
+| `android-openssl-drbg-and-ssl-guards.patch` | **Android OpenSSL DRBG 绕路**（`Platform.cc` / `SimpleRandomizer.cc`）+ `LibsslTLSContext` null guard；所有改动都在 `#ifdef __ANDROID__` 守护里，macOS / Linux / Windows 编译为 no-op |
+| `aria2-public-api-extensions.patch` | 暴露 `aria2::removeDownloadResult` / `purgeDownloadResult` / `getReservedDownload` / `getDownloadResults` 公共 API + `DownloadHandle` 5 个扩展 getter（`errorMessage` / `numSeeders` / `seeder` / `verifiedLength` / `verifyIntegrityPending`），并在 `<aria2/aria2.h>` 声明 4 个 `ARIA2DOWN_HAS_*` 特性宏让 FFI shim 编译期探测。**不打这个补丁** → 设置页一直显示「库引擎运行在功能受限模式」红条 |
 
 > 维护提示：升级 aria2 子模块后若 patch 冲突，在干净子模块上改好再
-> `git diff > patches/third_party-aria2/….patch` 更新补丁文件。
+> `git -C third_party/aria2 diff > patches/third_party-aria2/….patch` 更新补丁文件。
 
 ### 备选：Docker
 
