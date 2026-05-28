@@ -4,6 +4,36 @@
 
 ## [Unreleased]
 
+### 修复（Android：应用切到后台后从通知栏 / 图标重进应用每次都提示「libaria2 启动失败: aria2_ffi_session_new 失败」）
+
+用户反馈："Android 版本，应用退后台之后再从通知栏或者图标重进 App，每次都弹出 `libaria2 启动失败`，要重启系统或者杀掉应用进程才行。"
+
+复现路径：
+
+1. 打开应用 → libaria2 启动成功 → 开始下载，[`Aria2KeepAliveService`](android/app/src/main/kotlin/cloud/iothub/aria2down/Aria2KeepAliveService.kt) 作为前台服务挂上 ongoing 通知（[`MobileBackgroundBinding`](lib/app/mobile_background_binding.dart) 监听 daemon ready 后启动）。
+2. 用户按 Home 切到后台。前台服务和 wake lock 让 Application 进程保留在内存里，aria2 worker isolate 也仍在跑。
+3. 一段时间后 Android 在内存压力 / 配置变化 / 长时间无前台触摸的情况下**单独**销毁 Activity + FlutterEngine + Dart isolate，但**保留** Application 进程（前台服务还在）。aria2 worker isolate（独立 isolate）随着 Dart VM 一并被强杀，**没有走** `WorkerOp.close` → `aria2_ffi_session_final` → `aria2_ffi_library_deinit` 的正常清理路径。
+4. 用户点通知 / 图标重新进入，新 FlutterEngine 新 root isolate 启动 → Riverpod 重新创建 `aria2DaemonProvider` → 新 worker isolate 调 `aria2_ffi_library_init`：返回 `ALREADY_INITIALIZED(-1003)`，[`worker.dart`](packages/aria2_native/lib/src/worker.dart) 已经把它特例处理为"成功" ✓。
+5. 紧接着 `aria2_ffi_session_new`：C++ 进程级单例 `g_session` 仍然指向上次进程那个孤儿 session（aria2_native.so 仍 mmap 在进程地址空间），返回 `ARIA2_FFI_ERR_ALREADY_INITIALIZED(-1003)` ✗ → worker bootstrap 把它打回主 isolate 当作致命错误 → [`LibraryDaemon`](lib/aria2/daemon/library_daemon.dart) `start()` 抛 `Aria2DaemonException('libaria2 启动失败: aria2_ffi_session_new 失败')` → [`aria2DaemonProvider`](lib/providers/aria2_daemon_provider.dart) 的 `_startWithRetry` 三次重试都撞同一个 stale 状态，daemon 永远进不到 ready。
+
+**修复**（[`packages/aria2_native/src/aria2_ffi.cc`](packages/aria2_native/src/aria2_ffi.cc) `aria2_ffi_session_new`）：让它在发现 `g_session != nullptr` 时**自动接管 + 清理孤儿 session**，而不是直接失败。具体步骤：
+
+1. **持锁** 先把 `g_cb` / `g_cb_user_data` / `g_cb_handle` 清零。NativeCallable 已经随死 isolate 一起被销毁，留着它就是悬空指针；libaria2 shutdown 期间内部可能派发一次 download event，没清掉就会 dereference 死掉的 trampoline 导致 segfault。
+2. **持锁** 把 `g_session` 引用挪出到栈上局部变量 `stale`，并把全局 `g_session=nullptr` / `g_handle=0`——之后再有 `session_or_null()` 进来都直接返回 `NOT_FOUND`，不会再触碰 stale 指针。
+3. **释放锁**，再调 `aria2::sessionFinal(stale)` 真正回收。`sessionFinal` 内部会跑 aria2 的 shutdown loop（关连接、刷盘等），其中同步触发的 `trampoline_event_cb` 也要拿 `g_mu`——如果持锁 final 就会死锁。释放锁后 trampoline 拿到锁看到 `g_cb == nullptr` 直接 no-op，安全。
+4. **重新加锁**，正常 `aria2::sessionNew(options, cfg)` 创建新 session，写入 `g_session` / `g_handle` / `*out_handle`。
+
+第一次启动（`g_session == nullptr`）的路径行为完全不变（仅多了一次空检查）；只有"接管孤儿"场景额外多走一次 sessionFinal。
+
+**为何不能在 Dart 层兜底重试**：worker isolate 重启后没有上一次的 `handle` 值，`aria2_ffi_session_final(0)` 会因 `handle != g_handle` 直接返回 `NOT_FOUND`，没法主动清理。问题必须在 C++ 进程级单例的层面解决。
+
+**为何 `library_init` 不需要类似改动**：`aria2::libraryInit()` 是 idempotent 的全局初始化，二次调用返回 ALREADY_INITIALIZED 时 globals 仍然有效，[`worker.dart`](packages/aria2_native/lib/src/worker.dart) 已经把它当作成功。`session_new` 不同——session 本身是有状态对象，需要先 sessionFinal 才能创建新的。
+
+**验证**：
+
+- `aria2_ffi.cc` 是项目自有 shim，`flutter build apk` 会随插件 CMake 自动重编（[`packages/aria2_native/src/CMakeLists.txt`](packages/aria2_native/src/CMakeLists.txt)），用户不需要重跑 `./scripts/build_libaria2_android_macos.sh`（libaria2.a prebuilt 完全没变）。
+- Android 用户后续操作：拉到此 commit → `flutter clean && flutter run -d <android>`（或重新打 release APK）即生效。重启后再后台-前台切换若干次，从通知栏 / 图标重进应用，daemon 都应在 ~500ms 内进入 ready 状态，不再出现 `aria2_ffi_session_new 失败` 提示。
+
 ### 修复（Android：HTTPS 握手仍报 `unable to get local issuer certificate`——OpenSSL 3 的 hash 查找看不到 Android 用的旧 hash CA 文件）
 
 用户反馈："上一版补丁（commit `7e4692c`）虽然路径接对了，但 HTTPS 仍然 `unable to get local issuer certificate`。"
