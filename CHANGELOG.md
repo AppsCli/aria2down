@@ -4,6 +4,27 @@
 
 ## [Unreleased]
 
+### 工程（`build_libaria2_android_macos.sh`：依赖下载支持多源 fallback + 解压完整性 retry）
+
+用户反馈："`www.openssl.org` 经常被 ISP 拒，脚本卡在 `fetch openssl-3.0.15.tar.gz` 几分钟才失败退出，能不能换个能拉到的源？"
+
+之前每个依赖只硬编一个 URL，curl 失败就 `set -e` 抛错全脚本退出。本轮把 [`scripts/build_libaria2_android_macos.sh`](scripts/build_libaria2_android_macos.sh) 的 `fetch` 改为**多源 fallback**：
+
+```bash
+fetch "openssl-3.0.15.tar.gz" \
+  "https://github.com/openssl/openssl/releases/download/openssl-3.0.15/..." \
+  "https://ghproxy.net/https://github.com/openssl/openssl/releases/..." \
+  "https://www.openssl.org/source/openssl-3.0.15.tar.gz"
+```
+
+依次尝试每个 URL，首个能拉到 200 + 完整体积的就 `mv` 到 `$CACHE_DIR/$file`。每个 URL 单 try 1 retry + `--connect-timeout 8 --max-time 600`：单失败最差 ~20 秒回退到下一个，3 个源全跑完最多 ~60 秒。配合脚本对 `$CACHE_DIR/$file` 已存在的短路（直接复用），命中 cache 时无网络开销。
+
+各依赖的优先级（详见 [`docs/BUILD_LIBARIA2.md`](docs/BUILD_LIBARIA2.md)）：海外开发者从 GitHub direct 起头最快；CN 用户 github.com 不通会自动回退到 `ghproxy.net` 反代；最后才到上游官方源（如 `www.openssl.org` / `zlib.net/fossils`）作为兜底。**全部源都失败时**用户可以手动把 tarball 放到 `build/libaria2/android-native/cache/` 重跑脚本，会跳过网络。
+
+顺带把 `extract_to` 加了一道完整性 retry——macOS BSD tar 偶发会在 `tar -xf` 跑了一半静默退出，留下 0-byte 空目录树（实测在串行跑多 ABI 时触发过）。新版本：解压完后用 `find ... -size +0c` 校验，至少有一个非 0 字节文件才视为成功；空 → 最多 retry 3 次后才让 set -e 中断脚本。
+
+实测（本机 GFW 环境）：GitHub direct 全部超时（curl 28），ghproxy.net 全部 200 接管；从 0 cache 完整跑三 ABI build 约 7~8 分钟，三个 `libaria2.a`（armeabi-v7a 8.9 M / arm64-v8a 10 M / x86_64 9.9 M）+ 5 个静态依赖（libssl / libcrypto / libz / libcares / libexpat）全部产出，子模块工作树 clean。
+
 ### 修复（Android：上一轮 stranded-session 自接管修复在 Redmi Android 16 上仍 segfault，改走"进程级 fresh start"策略）
 
 用户反馈：上一轮 commit `d644cec` 修复后又收到崩溃栈（机型 Redmi Android 16 / OS3.0.302.0 / `cloud.iothub.aria2down`）：

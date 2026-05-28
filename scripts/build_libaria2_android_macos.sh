@@ -100,35 +100,98 @@ echo
 mkdir -p "$CACHE_DIR"
 
 fetch() {
-  # fetch <url> <archive>
-  local url="$1"
-  local file="$2"
+  # fetch <archive-file> <url1> [url2] [url3] ...
+  #
+  # 依赖 tarball 的"多源 fallback"下载：依次尝试每个 URL，命中第一个能拉到
+  # 200 + 完整体积的就保存。已存在则跳过。本机所有平台、各种 GFW / 公司
+  # 代理场景下都能覆盖：海外开发者首选 GitHub direct（最快），CN 用户
+  # github.com 不通则自动 fall 到 ghproxy.net 等反代镜像，再退到上游
+  # 官方源（如 www.openssl.org / zlib.net）。
+  #
+  # 超时策略：connect 8s + total 600s，retry 1 次。单 URL 失败最坏 ~20s
+  # 即 fall 到下一个，三个 URL 全跑完最差也就 ~60s 才报失败。
+  #
+  # 想跳过网络？手动 `cp <tarball> build/libaria2/android-native/cache/`
+  # 后重跑脚本即可——下面的 if-cached 短路会直接复用。
+  local file="$1"; shift
   local target="$CACHE_DIR/$file"
-  if [[ -f "$target" ]]; then return 0; fi
-  echo "[fetch] $file <- $url"
-  curl --fail --silent --show-error --location \
-       --retry 3 --retry-delay 2 \
-       -o "$target.part" "$url"
-  mv "$target.part" "$target"
+  if [[ -f "$target" ]]; then
+    echo "[fetch] $file (cached, $(stat -f %z "$target" 2>/dev/null || stat -c %s "$target") bytes)"
+    return 0
+  fi
+  local url
+  for url in "$@"; do
+    echo "[fetch] $file <- $url"
+    if curl --fail --silent --show-error --location \
+         --retry 1 --retry-delay 2 \
+         --connect-timeout 8 --max-time 600 \
+         -o "$target.part" "$url"; then
+      mv "$target.part" "$target"
+      return 0
+    fi
+    rm -f "$target.part"
+    echo "[fetch]   failed, trying next mirror..." >&2
+  done
+  echo "[fetch] all sources exhausted for $file" >&2
+  echo "[fetch] tip: 把 $file 手动放到 $CACHE_DIR/ 后重跑脚本可跳过网络" >&2
+  return 1
 }
 
 extract_to() {
   # extract_to <archive-file-in-cache> <destination-dir>
+  #
+  # 加一道完整性 retry：macOS 的 BSD tar 偶发会在 tar -xf 跑了一半静默
+  # 退出，留下只有目录骨架的 0-byte 解压树（实测在并行 build 多 ABI 时
+  # 触发率不算低）。重解后通常就能完整。空目录-> 再试一次，仍然失败
+  # 才把命令抛错让外层 set -e 中断。
   local file="$1"
   local dest="$2"
-  rm -rf "$dest"; mkdir -p "$dest"
-  tar -xf "$CACHE_DIR/$file" -C "$dest" --strip-components=1
+  local attempt
+  for attempt in 1 2 3; do
+    rm -rf "$dest"
+    mkdir -p "$dest"
+    if tar -xf "$CACHE_DIR/$file" -C "$dest" --strip-components=1 \
+         && [[ -n "$(ls -A "$dest" 2>/dev/null)" ]] \
+         && [[ "$(find "$dest" -type f -size +0c 2>/dev/null | head -1)" != "" ]]; then
+      return 0
+    fi
+    echo "[extract] $file → $dest attempt $attempt incomplete, retrying..." >&2
+  done
+  echo "[extract] $file → $dest failed after 3 attempts" >&2
+  return 1
 }
 
 # -----------------------------------------------------------------------------
 # 预下载（所有 ABI 共用同一份 tarball 缓存）
 # -----------------------------------------------------------------------------
-fetch "https://www.openssl.org/source/openssl-$OPENSSL_VER.tar.gz"                          "openssl-$OPENSSL_VER.tar.gz"
-fetch "https://zlib.net/fossils/zlib-$ZLIB_VER.tar.gz"                                       "zlib-$ZLIB_VER.tar.gz"
-fetch "https://github.com/libexpat/libexpat/releases/download/R_${EXPAT_VER//./_}/expat-$EXPAT_VER.tar.bz2" "expat-$EXPAT_VER.tar.bz2"
-fetch "https://github.com/c-ares/c-ares/releases/download/cares-${CARES_VER//./_}/c-ares-$CARES_VER.tar.gz" "c-ares-$CARES_VER.tar.gz"
+# OpenSSL：官网首发，GitHub release 镜像 + ghproxy.net 反代兜底。
+# 注：www.openssl.org 在某些 ISP 上偶发 HTTP/2 framing 错误（curl: 16），
+# 因此放在第三位作为 last resort。
+fetch "openssl-$OPENSSL_VER.tar.gz" \
+  "https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VER/openssl-$OPENSSL_VER.tar.gz" \
+  "https://ghproxy.net/https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VER/openssl-$OPENSSL_VER.tar.gz" \
+  "https://www.openssl.org/source/openssl-$OPENSSL_VER.tar.gz"
+
+# zlib：作者 GitHub release 是最稳的，zlib.net/fossils 留作兜底（被 GFW
+# 拦截相对少）。
+fetch "zlib-$ZLIB_VER.tar.gz" \
+  "https://github.com/madler/zlib/releases/download/v$ZLIB_VER/zlib-$ZLIB_VER.tar.gz" \
+  "https://ghproxy.net/https://github.com/madler/zlib/releases/download/v$ZLIB_VER/zlib-$ZLIB_VER.tar.gz" \
+  "https://zlib.net/fossils/zlib-$ZLIB_VER.tar.gz"
+
+# expat / c-ares：上游只在 GitHub release 发布；CN 必须走 ghproxy.net。
+fetch "expat-$EXPAT_VER.tar.bz2" \
+  "https://github.com/libexpat/libexpat/releases/download/R_${EXPAT_VER//./_}/expat-$EXPAT_VER.tar.bz2" \
+  "https://ghproxy.net/https://github.com/libexpat/libexpat/releases/download/R_${EXPAT_VER//./_}/expat-$EXPAT_VER.tar.bz2"
+
+fetch "c-ares-$CARES_VER.tar.gz" \
+  "https://github.com/c-ares/c-ares/releases/download/cares-${CARES_VER//./_}/c-ares-$CARES_VER.tar.gz" \
+  "https://ghproxy.net/https://github.com/c-ares/c-ares/releases/download/cares-${CARES_VER//./_}/c-ares-$CARES_VER.tar.gz"
+
 if [[ "$ENABLE_SQLITE3" == "1" ]]; then
-  fetch "https://www.sqlite.org/2024/sqlite-autoconf-$SQLITE_VER.tar.gz" "sqlite-autoconf-$SQLITE_VER.tar.gz"
+  # sqlite.org 通常可直连；备用源可由用户手动放进 cache。
+  fetch "sqlite-autoconf-$SQLITE_VER.tar.gz" \
+    "https://www.sqlite.org/2024/sqlite-autoconf-$SQLITE_VER.tar.gz"
 fi
 
 # -----------------------------------------------------------------------------

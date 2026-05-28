@@ -91,6 +91,20 @@ NDK 路径会按以下顺序自动探测：`$ANDROID_NDK_HOME` →
 | c-ares | 1.21.0 | 静态 `libcares.a`，异步 DNS |
 | sqlite3 | 3.46.x | （可选，默认关闭）aria2 仅用其读 Firefox `cookies.sqlite`，移动端基本无意义 |
 
+每个依赖按优先级尝试多个下载源（首个能拉到 200 + 完整体积的就保存）：
+
+| 依赖 | 主源（海外） | 备用源 1 | 备用源 2 |
+| --- | --- | --- | --- |
+| OpenSSL | github.com / openssl/openssl releases | ghproxy.net 反代 | www.openssl.org 官方源 |
+| zlib | github.com / madler/zlib releases | ghproxy.net 反代 | zlib.net/fossils 官方源 |
+| expat | github.com / libexpat releases | ghproxy.net 反代 | — |
+| c-ares | github.com / c-ares releases | ghproxy.net 反代 | — |
+
+> CN 用户走 ghproxy.net 反代即可（脚本会在 `github.com` 超时后自动回退），
+> 不需要额外配置。如果**所有**源都拉不到，可以手动把对应 tarball 放到
+> `build/libaria2/android-native/cache/`（文件名与上表 URL 末段一致），
+> 脚本会直接复用，跳过网络。
+
 默认与 [Dockerfile.android](../third_party/aria2/Dockerfile.android) 行为一致，
 不带 sqlite3。需要打开请显式：
 
