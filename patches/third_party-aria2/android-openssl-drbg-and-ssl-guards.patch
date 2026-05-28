@@ -1,13 +1,20 @@
 diff --git a/src/LibsslTLSContext.cc b/src/LibsslTLSContext.cc
-index 2cf78323..b09a3be1 100644
+index 2cf78323..58c21c9c 100644
 --- a/src/LibsslTLSContext.cc
 +++ b/src/LibsslTLSContext.cc
-@@ -41,12 +41,28 @@
+@@ -41,12 +41,35 @@
  #include <openssl/pkcs12.h>
  #include <openssl/bio.h>
  
 +#ifdef __ANDROID__
 +#  include <android/log.h>
++#  include <dirent.h>
++#  include <sys/stat.h>
++#  include <cerrno>
++#  include <climits>
++#  include <cstdio>
++#  include <openssl/pem.h>
++#  include <openssl/x509.h>
 +#endif
 +
  #include "LogFactory.h"
@@ -31,7 +38,7 @@ index 2cf78323..b09a3be1 100644
  namespace {
  struct bio_deleter {
    void operator()(BIO* b)
-@@ -106,8 +122,24 @@ OpenSSLTLSContext::OpenSSLTLSContext(TLSSessionSide side, TLSVersion minVer)
+@@ -106,8 +129,24 @@ OpenSSLTLSContext::OpenSSLTLSContext(TLSSessionSide side, TLSVersion minVer)
    }
    else {
      good_ = false;
@@ -58,7 +65,7 @@ index 2cf78323..b09a3be1 100644
      return;
    }
  
-@@ -275,6 +307,50 @@ bool OpenSSLTLSContext::addP12CredentialFile(const std::string& p12file)
+@@ -275,6 +314,110 @@ bool OpenSSLTLSContext::addP12CredentialFile(const std::string& p12file)
  
  bool OpenSSLTLSContext::addSystemTrustedCACerts()
  {
@@ -71,40 +78,100 @@ index 2cf78323..b09a3be1 100644
 +  }
 +#ifdef __ANDROID__
 +  // aria2down patch (Android): OpenSSL 编译时 OPENSSLDIR 指向交叉编译机的
-+  // 本地路径（macOS 上跑 scripts/build_libaria2_android_macos.sh 时生成的
-+  // `<repo>/build/.../install/ssl`），Android 设备上不存在；
-+  // SSL_CTX_set_default_verify_paths 因此**加载不到任何根 CA**，所有
-+  // HTTPS 握手会报 "unable to get local issuer certificate"。
++  // 本地路径，Android 设备上不存在；SSL_CTX_set_default_verify_paths
++  // 加载不到任何根 CA → 所有 HTTPS 握手报 "unable to get local issuer
++  // certificate"。
 +  //
-+  // 这里**先尝试**显式加载 Android 系统 CA 目录。各 Android 版本路径不同，
-+  // 按通用性递减顺序尝试，命中第一条就视为成功；命中任何一条已经能验证
-+  // 公网 CA 签发的证书（系统 CA 全集）。如果用户用 `--ca-certificate=<file>`
-+  // 自定义 CA 走 addTrustedCACertFile / addTrustedCACertDir 路径，不进这里。
++  // 关键陷阱：Android 系统 CA 目录里的 hash-named 文件
++  // （`/system/etc/security/cacerts/00673b5b.0` 这种）用的是 **OpenSSL
++  // 0.9.8 风格的旧 hash 算法** (`X509_NAME_hash_old`)，而 OpenSSL 1.0+
++  // 默认查找用的是新 hash (`X509_NAME_hash`)。所以
++  // `SSL_CTX_load_verify_locations(ctx, NULL, dir)` 在 Android CA 目录
++  // 上会"成功"返回 1 但运行时**找不到任何匹配 hash 的根 CA**，HTTPS 验证
++  // 仍然失败——这就是上一轮 7e4692c 修复实测没生效的原因。
++  //
++  // 正解：用 NDK 标准 POSIX <dirent.h> readdir() 遍历目录，对每个文件
++  // BIO_new_file → PEM_read_bio_X509 → X509_STORE_add_cert，**完全绕过**
++  // OpenSSL 的 hash 查找路径，直接把每张证书塞进 X509_STORE。验证时
++  // OpenSSL 会线性遍历 store 找 issuer，不依赖 hash 文件名。
++  //
++  // 路径优先级：
 +  //   - /apex/com.android.conscrypt/cacerts/   Android 14 / API 34+
-+  //     Conscrypt APEX 提供，系统 CA 真实存放点
-+  //   - /system/etc/security/cacerts/          Android 6+ / API 23+ 通用
-+  //     在 API 34+ 是符号链接到 conscrypt APEX
++  //   - /system/etc/security/cacerts/          Android 6+ / API 23+
++  //     （API 34+ 上是符号链接到 conscrypt APEX）
 +  static const char* const kAndroidCADirs[] = {
 +      "/apex/com.android.conscrypt/cacerts",
 +      "/system/etc/security/cacerts",
 +      nullptr,
 +  };
++  X509_STORE* store = SSL_CTX_get_cert_store(sslCtx_);
++  int totalLoaded = 0;
++  const char* usedDir = nullptr;
 +  for (const char* const* p = kAndroidCADirs; *p != nullptr; ++p) {
-+    if (SSL_CTX_load_verify_locations(sslCtx_, nullptr, *p) == 1) {
++    DIR* d = ::opendir(*p);
++    if (!d) {
 +      __android_log_print(ANDROID_LOG_INFO, "aria2down",
-+                          "Loaded Android system CA dir: %s", *p);
-+      A2_LOG_INFO(fmt("Loaded Android system CA dir: %s", *p));
-+      return true;
++                          "opendir(%s) failed: %d", *p, errno);
++      continue;
 +    }
-+    // SSL_CTX_load_verify_locations 失败会把错误推进 error queue，
-+    // 清掉防止干扰后续路径或 SSL_get_error。
-+    ERR_clear_error();
++    int loadedHere = 0;
++    struct dirent* entry;
++    while ((entry = ::readdir(d)) != nullptr) {
++      // 跳过 "." / ".." 和隐藏文件。Android 上是 hash-named PEM
++      // （`00673b5b.0` 等），既不是隐藏文件也不是目录。保险起见用
++      // stat() 过滤掉非普通文件。
++      if (entry->d_name[0] == '.') continue;
++      char path[PATH_MAX];
++      int n = ::snprintf(path, sizeof(path), "%s/%s", *p, entry->d_name);
++      if (n < 0 || n >= static_cast<int>(sizeof(path))) continue;
++      struct stat st;
++      if (::stat(path, &st) != 0 || !S_ISREG(st.st_mode)) continue;
++      BIO* bio = BIO_new_file(path, "r");
++      if (!bio) {
++        ERR_clear_error();
++        continue;
++      }
++      // 单个文件可能含多张证书（罕见但合法）。循环读到 PEM_R_NO_START_LINE
++      // 即 EOF。
++      while (true) {
++        X509* cert =
++            PEM_read_bio_X509(bio, nullptr, nullptr, nullptr);
++        if (!cert) break;
++        if (X509_STORE_add_cert(store, cert) == 1) {
++          ++loadedHere;
++        }
++        // 注意：X509_STORE_add_cert 失败时通常是该证书已在 store 里
++        // （X509_R_CERT_ALREADY_IN_HASH_TABLE），不算错误；清掉避免污染
++        // error queue。
++        ERR_clear_error();
++        X509_free(cert);
++      }
++      BIO_free(bio);
++      // PEM_read_bio_X509 走到 EOF 也会 push PEM_R_NO_START_LINE 进 queue，
++      // 必须清掉，否则后续 SSL_get_error 会误报。
++      ERR_clear_error();
++    }
++    ::closedir(d);
++    if (loadedHere > 0) {
++      usedDir = *p;
++      totalLoaded = loadedHere;
++      break;
++    }
 +  }
-+  __android_log_print(ANDROID_LOG_WARN, "aria2down",
-+                      "No Android system CA dir reachable; falling back to "
-+                      "OpenSSL default verify paths (likely empty).");
-+  A2_LOG_INFO("No Android system CA dir reachable; falling back to "
-+              "OpenSSL default verify paths");
++  if (totalLoaded > 0) {
++    __android_log_print(ANDROID_LOG_INFO, "aria2down",
++                        "Loaded %d Android system CAs from %s", totalLoaded,
++                        usedDir);
++    A2_LOG_INFO(
++        fmt("Loaded %d Android system CAs from %s", totalLoaded, usedDir));
++    return true;
++  }
++  __android_log_print(
++      ANDROID_LOG_WARN, "aria2down",
++      "No Android system CA loadable from /apex or /system; HTTPS "
++      "verification will fail. Try --check-certificate=false as workaround.");
++  A2_LOG_INFO("No Android system CA loadable; falling back to OpenSSL "
++              "default verify paths (likely empty)");
 +#endif
    if (SSL_CTX_set_default_verify_paths(sslCtx_) != 1) {
      A2_LOG_INFO(fmt(MSG_LOADING_SYSTEM_TRUSTED_CA_CERTS_FAILED,

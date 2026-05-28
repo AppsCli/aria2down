@@ -4,6 +4,41 @@
 
 ## [Unreleased]
 
+### 修复（Android：HTTPS 握手仍报 `unable to get local issuer certificate`——OpenSSL 3 的 hash 查找看不到 Android 用的旧 hash CA 文件）
+
+用户反馈："上一版补丁（commit `7e4692c`）虽然路径接对了，但 HTTPS 仍然 `unable to get local issuer certificate`。"
+
+调试时复现到底层 OpenSSL：调用 `SSL_CTX_load_verify_locations(ctx, NULL, "/system/etc/security/cacerts")` **返回 1（成功）**，但握手时仍然找不到根 CA。根因：
+
+- Android 系统 CA 目录里的文件是 hash-named PEM——比如 `00673b5b.0`、`a3f1333d.0`——文件名是**证书 subject 的 hash**，OpenSSL 在握手期 by-hash 查找信任锚时直接 `open(<dir>/<hash>.0)`，不读目录索引。
+- 这个 hash 算法在 OpenSSL 0.9.8 时改过一次：旧实现是 `X509_NAME_hash_old`，新实现是 `X509_NAME_hash`。Android 平台为了兼容 4.0 时代的 BoringSSL，**目录里的文件名仍然用旧算法生成**；而 OpenSSL 3.0 默认查找时用的是**新算法**。
+- 结果：`SSL_CTX_load_verify_locations` 把目录登记进 store 但实际验证一张证书都对不上 hash 名，X509_STORE 看似有路径但实质为空，验证报 `unable to get local issuer certificate`。
+
+**修复（用 NDK 标准 POSIX 直接遍历目录加载，绕开 hash 查找）**：[`patches/third_party-aria2/android-openssl-drbg-and-ssl-guards.patch`](patches/third_party-aria2/android-openssl-drbg-and-ssl-guards.patch) 重写 [`OpenSSLTLSContext::addSystemTrustedCACerts`](third_party/aria2/src/LibsslTLSContext.cc) 的 `__ANDROID__` 分支：
+
+1. 用 NDK 自带的 `<dirent.h>` `opendir` / `readdir` / `closedir` 遍历两条 Android CA 目录（按通用性递减：`/apex/com.android.conscrypt/cacerts/` → `/system/etc/security/cacerts/`），命中第一条加载成功（`loadedHere > 0`）的目录就停。
+2. 对每个 directory entry 用 `stat()` 过滤掉非普通文件（防 `.` / `..` / 符号链接误判）；然后 `BIO_new_file` 打开 PEM 文件 → 内层 `while (PEM_read_bio_X509(...))` 循环读所有证书（罕见但合法的多证书 PEM 也能覆盖）→ `X509_STORE_add_cert(SSL_CTX_get_cert_store(ctx), cert)` 直接塞进 store。
+3. 每个文件读完后 / 每次 add_cert 后无条件 `ERR_clear_error()`：`PEM_read_bio_X509` 到 EOF 时会 push `PEM_R_NO_START_LINE`，`X509_STORE_add_cert` 在 cert 已在 store 时 push `X509_R_CERT_ALREADY_IN_HASH_TABLE`，两者都不是错误，但留在 error queue 会污染后续 `SSL_get_error`。
+4. 通过 `__android_log_print` + `A2_LOG_INFO` 上报实际加载数量与目录：`Loaded %d Android system CAs from %s`。两条目录都加载不到时上报 `No Android system CA loadable from /apex or /system; HTTPS verification will fail. Try --check-certificate=false as workaround.` 并 fallback 到上游 `SSL_CTX_set_default_verify_paths`（虽然在 Android 上几乎肯定也失败，但保留语义、不致命）。
+
+通过把 cert 直接 add 进 X509_STORE，OpenSSL 验证时按线性 STACK 遍历找 issuer，**完全不走 hash 文件名查找**——Android 旧 hash 与 OpenSSL 3 新 hash 的差异问题被绕过。
+
+**为何不用 JNI 取 Android KeyStore**：那需要 native 拿到 JNIEnv（aria2 worker isolate 上下文不持有 JNI ref，要往 plugin 抽线缆 + ART 注入，复杂度过高），且 JNI 调用每个 cert 都要跨 ART 边界。POSIX `readdir` + `BIO_new_file` 没有 JNI 开销，且 SELinux 策略上 untrusted_app 域对 `/system/etc/security/cacerts/`、`/apex/com.android.conscrypt/cacerts/` 都有 `r_file_perms`，普通 App 进程可直读。
+
+**验证**：
+
+- `./scripts/build_libaria2_android_macos.sh` 重编三 ABI：`libaria2.a` 每个 ABI 比上一轮大 ~1.4 KB（对应 readdir 循环的 native code）。三 ABI 各 9 个 unique extern 符号引用（`opendir` / `readdir` / `closedir` / `stat` 来自 NDK Bionic；`PEM_read_bio_X509` / `X509_STORE_add_cert` / `SSL_CTX_get_cert_store` / `BIO_new_file` / `BIO_free` 来自 OpenSSL），4 条新诊断字面量（`Loaded %d Android system CAs from %s` / `opendir(%s) failed: %d` / fallback warning + info）+ 两条目录路径全部就位。
+- `flutter build apk --debug --target-platform android-arm64`：链接通过，`lib/arm64-v8a/libaria2_native.so` 8.0 M，含全部 4 条 CA-related 字面量。
+- 子模块工作树 clean（脚本 trap revert 正常）。
+
+**用户后续操作**：拉 commit → 重跑 `./scripts/build_libaria2_android_macos.sh`（OpenSSL/deps cache 保留，只 aria2 重链接，<1 分钟）→ `flutter clean` + `flutter run -d <android>`。设备上 `adb logcat -s aria2down` 应该看到一行：
+
+```
+I/aria2down: Loaded 152 Android system CAs from /apex/com.android.conscrypt/cacerts
+```
+
+（具体数字依设备 Android 版本而定，通常 100~200）。HTTPS 下载应该可用了。若 logcat 显示 `0 CAs` 或 fallback warning，请贴 logcat 全文（特别是 `opendir(...) failed: %d`，错误码非 2 / 13 的情况下能指向具体问题）。
+
 ### 修复（Android：HTTPS 握手报 `SSL/TLS handshake failure: unable to get local issuer certificate`，OpenSSL 不识别 Android 系统 CA）
 
 用户反馈："拉了上一轮 `SSL initialization failed:` 修复后的 prebuilt 重新打包，初始化不再失败了，但 HTTPS 下载握手期间报 `SSL/TLS handshake failure: unable to get local issuer certificate`。"
