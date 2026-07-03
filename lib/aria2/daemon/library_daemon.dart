@@ -28,14 +28,13 @@ import 'daemon_state.dart';
 /// 等用于 provider 路径的 getter）。
 base class LibraryDaemon implements Aria2Daemon {
   LibraryDaemon({
-    required Directory stateRoot,
-    Directory? downloadDirectory,
+    required this._stateRoot,
+    this._downloadDirectory,
     this.maxConcurrentDownloads,
     this.maxConnectionPerServer,
     this.globalDownloadLimit,
     this.globalUploadLimit,
-  }) : _stateRoot = stateRoot,
-       _downloadDirectory = downloadDirectory;
+  });
 
   final Directory _stateRoot;
   final Directory? _downloadDirectory;

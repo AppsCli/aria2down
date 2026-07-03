@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### 工程（Flutter 3.44 / Dart 3.12 升级）
+
+- CI `FLUTTER_VERSION` 从 3.32.8 升至 **3.44.4**（[`flutter.yml`](.github/workflows/flutter.yml)、[`release.yml`](.github/workflows/release.yml)）。
+- `pubspec.yaml` / `packages/aria2_native` 的 SDK 约束升至 `^3.12.0`，Flutter 最低 `>=3.44.0`。
+- 设置页语言 `DropdownButtonFormField`：`value` → `initialValue`（Flutter 3.33+ 弃用修复），并用 `ValueKey` 保证外部 locale 变更时重建。
+- Android：`gradle.properties` 追加 Flutter 3.44 migrator 的 `android.builtInKotlin=false` / `android.newDsl=false`（AGP 9 过渡兼容，待插件生态全面迁移后可移除）。
+- 本地 `flutter pub get` 刷新 `pubspec.lock`（`characters`、`meta`、`vector_math` 等随 SDK 升级）。
+
 ### 修复（Android：64-bit `.so` 没有 16 KB 段对齐，AAB 上传 Play Console 提示「您的应用不支持 16 KB 内存页面大小」）
 
 用户反馈：本轮把 `flutter build appbundle --release` 产物传到 Google Play 内部测试通道时收到拦截：

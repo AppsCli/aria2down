@@ -2,7 +2,7 @@
 
 ## 环境
 
-- Flutter **stable**（Dart 3.8+）
+- Flutter **stable 3.44+**（Dart 3.12+）
 - 桌面调试：本机 `aria2c` 在 `PATH` 中，或设置页指定路径
 - Web 调试：仅 **远程 RPC**（`flutter run -d chrome` + 设置远程地址）
 

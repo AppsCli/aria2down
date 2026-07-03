@@ -16,9 +16,7 @@ abstract class Aria2NotificationSource {
 ///
 /// 请求仍建议走 [Aria2HttpTransport]，避免在 WS 上维护请求/响应配对状态。
 class WsAria2Notifier implements Aria2NotificationSource {
-  WsAria2Notifier({required Uri endpoint, required String secret})
-    : _endpoint = endpoint,
-      _secret = secret;
+  WsAria2Notifier({required this._endpoint, required this._secret});
 
   final Uri _endpoint;
   final String _secret;

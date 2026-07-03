@@ -4,7 +4,7 @@
 
 ## 开发环境
 
-1. [Flutter](https://docs.flutter.dev/get-started/install) stable（Dart 3.8+）
+1. [Flutter](https://docs.flutter.dev/get-started/install) stable 3.44+（Dart 3.12+）
 2. 可选：本机 `aria2`（跑集成测试与本地调试）
 3. 克隆含子模块：`git clone --recurse-submodules <repo>`
 

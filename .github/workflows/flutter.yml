@@ -18,10 +18,10 @@ on:
 # 不再上传整个 bundle 目录（actions/upload-artifact 把目录归档成 .zip，下载后
 # 缺保留权限位 / chmod，桌面验证更麻烦）。
 env:
-  # 固定 Flutter SDK 版本，与本地 `fvm` 持有的 3.32.8 一致，避免上游 stable
+  # 固定 Flutter SDK 版本，与本地 stable 持有的 3.44.4 一致，避免上游 stable
   # 跳版引入新 lint info / behavior change 让 CI 单方面失败。升级时本地
-  # `fvm use <version>` + 这里同步即可。
-  FLUTTER_VERSION: '3.32.8'
+  # `flutter upgrade` + 这里同步即可。
+  FLUTTER_VERSION: '3.44.4'
 
 # `contents: write` 让失败时的 "Comment failing test log on commit" 步骤
 # 能用 GITHUB_TOKEN 把 flutter-test.log tail POST 成 commit comment（公开

@@ -88,7 +88,7 @@
 
 | 类别 | 选型 | 理由 |
 | --- | --- | --- |
-| UI 框架 | Flutter (Dart 3.8.1+) | 一份代码 5 平台 |
+| UI 框架 | Flutter 3.44+ (Dart 3.12+) | 一份代码 5 平台 |
 | 状态管理 | `riverpod` 或 `provider` + `flutter_hooks` | Riverpod 更现代、可测试性更好 |
 | 路由 | `go_router` | 官方推荐 |
 | 持久化 | `shared_preferences` + `path_provider`，复杂结构使用 `isar` 或 `drift` | 任务历史、配置存储 |

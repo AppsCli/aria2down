@@ -18,7 +18,7 @@ android {
     namespace = "cloud.iothub.aria2down"
     compileSdk = flutter.compileSdkVersion
     // aria2_native 插件依赖的 Android NDK 27（与 build_libaria2_android_macos.sh
-    // 里用的工具链对齐）；Flutter 3.32 默认 flutter.ndkVersion = 26.3.11579264，
+    // 里用的工具链对齐）；Flutter 3.44 默认 flutter.ndkVersion = 28.2.13676358，
     // 不指定的话所有插件会被强行编到 26 导致不一致警告 + 链接路径错位。
     ndkVersion = "27.0.12077973"
 

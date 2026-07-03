@@ -1,6 +1,6 @@
 # aria2down — Agent 指南
 
-Flutter 跨平台 aria2 GUI。Dart 3.8+，Riverpod，`go_router`，Material 3。
+Flutter 跨平台 aria2 GUI。Flutter 3.44+ / Dart 3.12+，Riverpod，`go_router`，Material 3。
 
 ## 常用命令
 

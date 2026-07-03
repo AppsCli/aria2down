@@ -7,10 +7,8 @@ import 'rpc_transport.dart';
 
 /// JSON-RPC 2.0 over HTTP POST to `/jsonrpc`。
 final class Aria2HttpTransport implements Aria2RpcTransport {
-  Aria2HttpTransport({required Uri endpoint, required String secret, Dio? dio})
-    : _endpoint = endpoint,
-      _secret = secret,
-      _dio =
+  Aria2HttpTransport({required this._endpoint, required this._secret, Dio? dio})
+    : _dio =
           dio ??
           Dio(
             BaseOptions(

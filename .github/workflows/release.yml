@@ -29,7 +29,7 @@ permissions:
 
 env:
   # 与 flutter.yml 保持一致，避免 release 资产用不同 SDK 版本编出来。
-  FLUTTER_VERSION: '3.32.8'
+  FLUTTER_VERSION: '3.44.4'
 
 jobs:
   resolve-tag:

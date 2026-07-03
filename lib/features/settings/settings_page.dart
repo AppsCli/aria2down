@@ -978,7 +978,8 @@ class _SettingsFormState extends ConsumerState<_SettingsForm> {
           // 顶部分组 + 其他语言按本地命名（English / 简体中文 / 日本語…）
           // 排列，让用户能在不切到目标语言之前就识别选项。
           DropdownButtonFormField<AppLocalePreference>(
-            value: settings.locale,
+            key: ValueKey(settings.locale),
+            initialValue: settings.locale,
             isExpanded: true,
             decoration: const InputDecoration(
               border: OutlineInputBorder(),

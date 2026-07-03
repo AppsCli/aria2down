@@ -107,7 +107,7 @@ flutter run -d <android>  # Android
 
 ## 技术栈
 
-- **UI**：Flutter (Dart 3.8.1+)，Material 3
+- **UI**：Flutter 3.44+（Dart 3.12+），Material 3
 - **下载内核**：aria2 1.37.0（git submodule）
 - **通信**：JSON-RPC 2.0 over WebSocket / HTTP
 - **状态管理**：Riverpod
