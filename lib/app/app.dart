@@ -112,6 +112,18 @@ class Aria2downApp extends ConsumerWidget {
         debugShowCheckedModeBanner: false,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
+        localeListResolutionCallback: (locales, supported) {
+          if (locales != null) {
+            for (final locale in locales) {
+              for (final candidate in supported) {
+                if (candidate.languageCode == locale.languageCode) {
+                  return candidate;
+                }
+              }
+            }
+          }
+          return const Locale('en');
+        },
         theme: buildAria2downTheme(Brightness.light),
         home: const Scaffold(body: Center(child: CircularProgressIndicator())),
       ),
@@ -119,6 +131,18 @@ class Aria2downApp extends ConsumerWidget {
         debugShowCheckedModeBanner: false,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
+        localeListResolutionCallback: (locales, supported) {
+          if (locales != null) {
+            for (final locale in locales) {
+              for (final candidate in supported) {
+                if (candidate.languageCode == locale.languageCode) {
+                  return candidate;
+                }
+              }
+            }
+          }
+          return const Locale('en');
+        },
         theme: buildAria2downTheme(Brightness.light),
         home: Scaffold(body: Center(child: Text('$e'))),
       ),
@@ -148,6 +172,18 @@ class Aria2downApp extends ConsumerWidget {
                 ),
                 localizationsDelegates: AppLocalizations.localizationsDelegates,
                 supportedLocales: AppLocalizations.supportedLocales,
+                localeListResolutionCallback: (locales, supported) {
+                  if (locales != null) {
+                    for (final locale in locales) {
+                      for (final candidate in supported) {
+                        if (candidate.languageCode == locale.languageCode) {
+                          return candidate;
+                        }
+                      }
+                    }
+                  }
+                  return const Locale('en');
+                },
                 home: Builder(
                   builder: (ctx) {
                     final l = AppLocalizations.of(ctx)!;
@@ -174,6 +210,18 @@ class Aria2downApp extends ConsumerWidget {
                 ),
                 localizationsDelegates: AppLocalizations.localizationsDelegates,
                 supportedLocales: AppLocalizations.supportedLocales,
+                localeListResolutionCallback: (locales, supported) {
+                  if (locales != null) {
+                    for (final locale in locales) {
+                      for (final candidate in supported) {
+                        if (candidate.languageCode == locale.languageCode) {
+                          return candidate;
+                        }
+                      }
+                    }
+                  }
+                  return const Locale('en');
+                },
                 home: DaemonErrorScreen(error: e),
               ),
               data: (_) => MaterialApp.router(
@@ -191,6 +239,18 @@ class Aria2downApp extends ConsumerWidget {
                 ),
                 localizationsDelegates: AppLocalizations.localizationsDelegates,
                 supportedLocales: AppLocalizations.supportedLocales,
+                localeListResolutionCallback: (locales, supported) {
+                  if (locales != null) {
+                    for (final locale in locales) {
+                      for (final candidate in supported) {
+                        if (candidate.languageCode == locale.languageCode) {
+                          return candidate;
+                        }
+                      }
+                    }
+                  }
+                  return const Locale('en');
+                },
                 routerConfig: router,
                 builder: (context, child) {
                   return IncomingLinkListener(
